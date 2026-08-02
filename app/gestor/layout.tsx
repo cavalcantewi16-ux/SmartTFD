@@ -7,7 +7,6 @@ const navItems = [
   { href: '/gestor/veiculos',     label: '🚐 Veículos'      },
   { href: '/gestor/hospitais',    label: '🏥 Hospitais'     },
   { href: '/gestor/viagens',      label: '📅 Agendamento'   },
-  { href: '/gestor/redistribuicao', label: '🔀 Redistribuir' },
   { href: '/gestor/historico',    label: '📋 Histórico'     },
   { href: '/gestor/configuracoes', label: '⚙️ Config'       },
 ]
