@@ -241,6 +241,12 @@ export default function PacientesPage() {
               </div>
 
               <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+                <a
+                  href={`/gestor/pacientes/${p.id}`}
+                  className="flex-1 text-xs text-gray-600 hover:bg-gray-50 py-1.5 rounded-md transition-colors font-medium text-center"
+                >
+                  👁️ Perfil
+                </a>
                 <button
                   onClick={() => abrirEdicao(p)}
                   className="flex-1 text-xs text-blue-700 hover:bg-blue-50 py-1.5 rounded-md transition-colors font-medium"

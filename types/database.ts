@@ -41,15 +41,18 @@ export interface Viagem {
   created_at: string
 }
 
+export type StatusParada = 'pendente' | 'embarcado' | 'concluido' | 'ausente' | 'cancelou' | 'desembarcou'
+
 export interface ViagemParada {
   id: string
   viagem_id: string
   paciente_id: string
   hospital_id: string
   ordem: number
-  status: 'pendente' | 'embarcado' | 'concluido'
+  status: StatusParada
   hora_embarque?: string
   hora_chegada?: string
+  observacao?: string
 }
 
 export interface Veiculo {

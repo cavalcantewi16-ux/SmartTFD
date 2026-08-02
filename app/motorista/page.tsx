@@ -3,10 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import type { Database } from '@/types/database'
-
-type StatusViagem = 'pendente' | 'em_andamento' | 'concluida' | 'cancelada'
-type StatusParada = 'pendente' | 'embarcado' | 'concluido'
+import type { Database, StatusParada } from '@/types/database'
 
 interface Parada {
   id: string
@@ -14,16 +11,34 @@ interface Parada {
   status: StatusParada
   hora_embarque?: string | null
   hora_chegada?: string | null
-  paciente: { nome: string; municipio: string; endereco: string } | null
-  hospital: { nome: string; municipio: string } | null
+  paciente: { nome: string; municipio: string; endereco: string; lat: number; lng: number } | null
+  hospital: { nome: string; municipio: string; lat: number; lng: number } | null
 }
 
 interface DadosViagem {
   id: string
-  status: StatusViagem
+  status: 'pendente' | 'em_andamento' | 'concluida' | 'cancelada'
   veiculoModelo: string
   veiculoCapacidade: number
   paradas: Parada[]
+}
+
+const STATUS_COR: Record<StatusParada, string> = {
+  pendente:    'bg-gray-700 text-gray-300',
+  embarcado:   'bg-blue-800 text-blue-200',
+  concluido:   'bg-green-800 text-green-200',
+  desembarcou: 'bg-green-800 text-green-200',
+  ausente:     'bg-yellow-800 text-yellow-200',
+  cancelou:    'bg-red-900 text-red-300',
+}
+
+const STATUS_LABEL: Record<StatusParada, string> = {
+  pendente:    'Pendente',
+  embarcado:   'A bordo',
+  concluido:   'Entregue',
+  desembarcou: 'Desembarcou',
+  ausente:     'Ausente',
+  cancelou:    'Cancelou',
 }
 
 export default function MotoristaPage() {
@@ -36,8 +51,9 @@ export default function MotoristaPage() {
   const [gpsAtivo, setGpsAtivo] = useState(false)
   const [coordenadas, setCoordenadas] = useState<{ lat: number; lng: number } | null>(null)
   const [carregando, setCarregando] = useState(true)
-  const [mensagem, setMensagem] = useState<{ texto: string; tipo: 'info' | 'erro' | 'ok' } | null>(null)
+  const [mensagem, setMensagem] = useState<{ texto: string; tipo: 'ok' | 'erro' | 'info' } | null>(null)
   const [salvandoParada, setSalvandoParada] = useState<string | null>(null)
+  const [paradaExpandida, setParadaExpandida] = useState<string | null>(null)
 
   const watchIdRef = useRef<number | null>(null)
   const ultimoUpsertRef = useRef<number>(0)
@@ -60,8 +76,8 @@ export default function MotoristaPage() {
         veiculos!veiculo_id(modelo, capacidade),
         viagem_paradas(
           id, ordem, status, hora_embarque, hora_chegada,
-          paciente:pacientes(nome, municipio, endereco),
-          hospital:hospitais(nome, municipio)
+          paciente:pacientes(nome, municipio, endereco, lat, lng),
+          hospital:hospitais(nome, municipio, lat, lng)
         )
       `)
       .eq('motorista_id', user.id)
@@ -73,8 +89,8 @@ export default function MotoristaPage() {
 
     if (v) {
       const veiculo = v.veiculos as any
-      const paradas = ((v.viagem_paradas as any[]) ?? [])
-        .sort((a: any, b: any) => a.ordem - b.ordem)
+      const paradas: Parada[] = ((v.viagem_paradas as any[]) ?? [])
+        .sort((a, b) => a.ordem - b.ordem)
         .map((p: any) => ({
           id: p.id,
           ordem: p.ordem,
@@ -84,10 +100,9 @@ export default function MotoristaPage() {
           paciente: p.paciente ?? null,
           hospital: p.hospital ?? null,
         }))
-
       setViagem({
         id: v.id,
-        status: v.status as StatusViagem,
+        status: v.status as any,
         veiculoModelo: veiculo?.modelo ?? 'Veículo',
         veiculoCapacidade: veiculo?.capacidade ?? 4,
         paradas,
@@ -103,13 +118,12 @@ export default function MotoristaPage() {
 
   function iniciarGPS(id: string) {
     if (!navigator.geolocation) {
-      setMensagem({ texto: 'GPS não disponível neste dispositivo.', tipo: 'erro' })
+      setMensagem({ texto: 'GPS não disponível.', tipo: 'erro' })
       return
     }
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
-        const lat = pos.coords.latitude
-        const lng = pos.coords.longitude
+        const { latitude: lat, longitude: lng } = pos.coords
         setCoordenadas({ lat, lng })
         setGpsAtivo(true)
         const agora = Date.now()
@@ -120,10 +134,7 @@ export default function MotoristaPage() {
           atualizado_em: new Date().toISOString(),
         })
       },
-      () => {
-        setGpsAtivo(false)
-        setMensagem({ texto: 'Erro no GPS. Verifique as permissões.', tipo: 'erro' })
-      },
+      () => { setGpsAtivo(false); setMensagem({ texto: 'Erro no GPS. Verifique as permissões.', tipo: 'erro' }) },
       { enableHighAccuracy: true, maximumAge: 5000 }
     )
   }
@@ -136,89 +147,62 @@ export default function MotoristaPage() {
     setGpsAtivo(false)
   }
 
-  async function handleIniciarRota() {
-    if (!viagem) return
-    setMensagem(null)
-    const { error } = await supabase.from('viagens').update({ status: 'em_andamento' }).eq('id', viagem.id)
-    if (error) { setMensagem({ texto: 'Erro ao iniciar rota.', tipo: 'erro' }); return }
-    setViagem(v => v ? { ...v, status: 'em_andamento' } : v)
-    iniciarGPS(motoristaId)
-    setMensagem({ texto: 'Rota iniciada! GPS ativado.', tipo: 'ok' })
+  function abrirGoogleMaps(lat?: number, lng?: number, nome?: string) {
+    if (!lat || !lng) return
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(nome ?? '')}&travelmode=driving`
+    window.open(url, '_blank')
+  }
+
+  function mostrarMsg(texto: string, tipo: 'ok' | 'erro' | 'info' = 'ok') {
+    setMensagem({ texto, tipo })
     setTimeout(() => setMensagem(null), 3000)
   }
 
-  async function handleEmbarque(parada: Parada) {
-    if (!viagem || parada.status !== 'pendente') return
-    setSalvandoParada(parada.id)
+  async function atualizarParada(paradaId: string, status: StatusParada, extra?: { hora_embarque?: string; hora_chegada?: string }) {
+    setSalvandoParada(paradaId)
     const { error } = await supabase
       .from('viagem_paradas')
-      .update({ status: 'embarcado', hora_embarque: new Date().toISOString() })
-      .eq('id', parada.id)
+      .update({ status, ...extra })
+      .eq('id', paradaId)
     if (error) {
-      setMensagem({ texto: 'Erro ao registrar embarque.', tipo: 'erro' })
+      mostrarMsg('Erro ao atualizar status.', 'erro')
     } else {
       setViagem(v => v ? {
         ...v,
-        paradas: v.paradas.map(p => p.id === parada.id
-          ? { ...p, status: 'embarcado', hora_embarque: new Date().toISOString() }
-          : p
-        )
+        paradas: v.paradas.map(p => p.id === paradaId ? { ...p, status, ...extra } : p)
       } : v)
-      setMensagem({ texto: `${parada.paciente?.nome ?? 'Paciente'} embarcou!`, tipo: 'ok' })
-      setTimeout(() => setMensagem(null), 2500)
     }
     setSalvandoParada(null)
   }
 
-  async function handleConcluirParada(parada: Parada) {
-    if (!viagem || parada.status !== 'embarcado') return
-    setSalvandoParada(parada.id)
-    const { error } = await supabase
-      .from('viagem_paradas')
-      .update({ status: 'concluido', hora_chegada: new Date().toISOString() })
-      .eq('id', parada.id)
-    if (error) {
-      setMensagem({ texto: 'Erro ao concluir parada.', tipo: 'erro' })
-    } else {
-      setViagem(v => v ? {
-        ...v,
-        paradas: v.paradas.map(p => p.id === parada.id
-          ? { ...p, status: 'concluido', hora_chegada: new Date().toISOString() }
-          : p
-        )
-      } : v)
-      setMensagem({ texto: `${parada.paciente?.nome ?? 'Paciente'} entregue!`, tipo: 'ok' })
-      setTimeout(() => setMensagem(null), 2500)
-    }
-    setSalvandoParada(null)
+  async function handleIniciarRota() {
+    if (!viagem) return
+    const { error } = await supabase.from('viagens').update({ status: 'em_andamento' }).eq('id', viagem.id)
+    if (error) { mostrarMsg('Erro ao iniciar rota.', 'erro'); return }
+    setViagem(v => v ? { ...v, status: 'em_andamento' } : v)
+    iniciarGPS(motoristaId)
+    mostrarMsg('Rota iniciada! GPS ativado.', 'ok')
   }
 
   async function handleFinalizar() {
     if (!viagem) return
-    const todasConcluidas = viagem.paradas.every(p => p.status === 'concluido')
-    if (!todasConcluidas) {
-      const confirmar = window.confirm('Ainda há pacientes pendentes. Deseja finalizar mesmo assim?')
-      if (!confirmar) return
+    const pendentes = viagem.paradas.filter(p => p.status === 'pendente' || p.status === 'embarcado')
+    if (pendentes.length > 0) {
+      if (!window.confirm(`Ainda há ${pendentes.length} parada(s) pendente(s). Finalizar mesmo assim?`)) return
     } else {
       if (!window.confirm('Confirmar finalização da rota?')) return
     }
     await supabase.from('viagens').update({ status: 'concluida' }).eq('id', viagem.id)
     pararGPS()
     setViagem(v => v ? { ...v, status: 'concluida' } : v)
-    setMensagem({ texto: 'Rota finalizada! Bom trabalho! 🎉', tipo: 'ok' })
-  }
-
-  async function handleSair() {
-    pararGPS()
-    await supabase.auth.signOut()
-    router.push('/login')
+    mostrarMsg('Rota finalizada! Bom trabalho! 🎉', 'ok')
   }
 
   const emAndamento = viagem?.status === 'em_andamento'
   const concluida = viagem?.status === 'concluida'
   const embarcados = viagem?.paradas.filter(p => p.status === 'embarcado').length ?? 0
-  const concluidos = viagem?.paradas.filter(p => p.status === 'concluido').length ?? 0
-  const totalParadas = viagem?.paradas.length ?? 0
+  const entregues = viagem?.paradas.filter(p => ['concluido','desembarcou'].includes(p.status)).length ?? 0
+  const totalAtivos = viagem?.paradas.filter(p => !['ausente','cancelou'].includes(p.status)).length ?? 0
 
   function formatarHora(iso?: string | null) {
     if (!iso) return null
@@ -229,10 +213,10 @@ export default function MotoristaPage() {
     <div className="min-h-screen bg-gray-950 text-white flex flex-col max-w-md mx-auto">
 
       {/* Header */}
-      <header className="bg-gray-900 px-5 py-4 flex items-center justify-between border-b border-gray-800">
+      <header className="bg-gray-900 px-5 py-4 flex items-center justify-between border-b border-gray-800 sticky top-0 z-10">
         <div>
           <h1 className="font-extrabold text-xl">Smart<span className="text-blue-400">TFD</span></h1>
-          <p className="text-gray-400 text-xs mt-0.5">{nomeMotorista || 'Motorista'}</p>
+          <p className="text-gray-400 text-xs">{nomeMotorista || 'Motorista'}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`w-2.5 h-2.5 rounded-full ${gpsAtivo ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
@@ -244,61 +228,59 @@ export default function MotoristaPage() {
 
       <main className="flex-1 flex flex-col gap-4 p-4 pb-6">
         {carregando ? (
-          <div className="flex-1 flex items-center justify-center text-gray-500">
-            <p className="text-lg animate-pulse">Carregando…</p>
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-gray-500 animate-pulse text-lg">Carregando…</p>
           </div>
         ) : !viagem ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center py-12">
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center py-16">
             <span className="text-6xl">📋</span>
             <p className="text-gray-300 font-bold text-xl">Nenhuma rota hoje</p>
-            <p className="text-gray-500 text-sm">O gestor ainda não criou sua rota para hoje.</p>
+            <p className="text-gray-500 text-sm">O gestor ainda não criou sua rota.</p>
           </div>
         ) : (
           <>
-            {/* Card veículo + progresso */}
+            {/* Card da viagem */}
             <div className="bg-gray-800 rounded-2xl p-4 border border-gray-700">
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <p className="text-gray-400 text-xs uppercase tracking-widest">Veículo</p>
                   <p className="font-bold text-lg">🚐 {viagem.veiculoModelo}</p>
                 </div>
-                <div className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
                   emAndamento ? 'bg-blue-900 text-blue-300' :
                   concluida ? 'bg-green-900 text-green-300' :
                   'bg-gray-700 text-gray-300'
                 }`}>
                   {emAndamento ? 'Em andamento' : concluida ? 'Concluída' : 'Pendente'}
-                </div>
+                </span>
               </div>
 
               {/* Barra de progresso */}
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs text-gray-400">
-                  <span>{concluidos} entregues · {embarcados} a bordo · {totalParadas - embarcados - concluidos} pendentes</span>
-                  <span>{totalParadas} total</span>
+                  <span>{entregues} entregues · {embarcados} a bordo · {totalAtivos - entregues - embarcados} pendentes</span>
+                  <span>{viagem.paradas.length} paradas</span>
                 </div>
                 <div className="h-2 bg-gray-700 rounded-full overflow-hidden flex">
-                  <div className="bg-green-500 transition-all" style={{ width: `${(concluidos / Math.max(totalParadas, 1)) * 100}%` }} />
-                  <div className="bg-blue-500 transition-all" style={{ width: `${(embarcados / Math.max(totalParadas, 1)) * 100}%` }} />
+                  <div className="bg-green-500 transition-all duration-500" style={{ width: `${(entregues / Math.max(totalAtivos, 1)) * 100}%` }} />
+                  <div className="bg-blue-500 transition-all duration-500" style={{ width: `${(embarcados / Math.max(totalAtivos, 1)) * 100}%` }} />
                 </div>
                 <div className="flex gap-3 text-xs text-gray-500">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />Entregue</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />A bordo</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-600 inline-block" />Pendente</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Entregue</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />A bordo</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-600" />Pendente</span>
                 </div>
               </div>
 
               {coordenadas && (
-                <p className="text-gray-600 text-xs mt-2">
-                  📍 {coordenadas.lat.toFixed(5)}, {coordenadas.lng.toFixed(5)}
-                </p>
+                <p className="text-gray-600 text-xs mt-2">📍 {coordenadas.lat.toFixed(5)}, {coordenadas.lng.toFixed(5)}</p>
               )}
             </div>
 
-            {/* Mensagem de feedback */}
+            {/* Feedback */}
             {mensagem && (
               <div className={`rounded-xl px-4 py-3 text-sm text-center font-medium border ${
-                mensagem.tipo === 'ok' ? 'bg-green-900 border-green-700 text-green-300' :
+                mensagem.tipo === 'ok'   ? 'bg-green-900 border-green-700 text-green-300' :
                 mensagem.tipo === 'erro' ? 'bg-red-900 border-red-700 text-red-300' :
                 'bg-yellow-900 border-yellow-700 text-yellow-300'
               }`}>
@@ -316,94 +298,138 @@ export default function MotoristaPage() {
             )}
 
             {/* Lista de paradas */}
-            {!concluida && totalParadas > 0 && (
+            {viagem.paradas.length > 0 && (
               <div className="flex flex-col gap-3">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Paradas da rota</p>
+
                 {viagem.paradas.map((parada, i) => {
                   const isSalvando = salvandoParada === parada.id
-                  const isPendente = parada.status === 'pendente'
+                  const isExpandida = paradaExpandida === parada.id
+                  const isFinalizado = ['concluido','desembarcou','ausente','cancelou'].includes(parada.status)
                   const isEmbarcado = parada.status === 'embarcado'
-                  const isConcluido = parada.status === 'concluido'
+                  const isPendente = parada.status === 'pendente'
 
                   return (
-                    <div key={parada.id} className={`rounded-2xl border p-4 transition-all ${
-                      isConcluido ? 'bg-green-950 border-green-800 opacity-70' :
-                      isEmbarcado ? 'bg-blue-950 border-blue-800' :
-                      'bg-gray-800 border-gray-700'
+                    <div key={parada.id} className={`rounded-2xl border overflow-hidden transition-all ${
+                      parada.status === 'cancelou' ? 'border-red-900 bg-red-950 opacity-70' :
+                      parada.status === 'ausente'  ? 'border-yellow-900 bg-yellow-950 opacity-80' :
+                      isFinalizado                  ? 'border-green-900 bg-green-950 opacity-75' :
+                      isEmbarcado                   ? 'border-blue-800 bg-blue-950' :
+                      'border-gray-700 bg-gray-800'
                     }`}>
-                      <div className="flex items-start gap-3">
-                        {/* Número da parada */}
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
-                          isConcluido ? 'bg-green-700 text-green-200' :
-                          isEmbarcado ? 'bg-blue-700 text-blue-200' :
-                          'bg-gray-700 text-gray-300'
-                        }`}>
-                          {isConcluido ? '✓' : isEmbarcado ? '→' : i + 1}
-                        </div>
-
-                        {/* Info da parada */}
-                        <div className="flex-1 min-w-0">
-                          <p className="font-bold text-base leading-tight">
-                            {parada.paciente?.nome ?? 'Paciente sem nome'}
-                          </p>
-                          <p className="text-gray-400 text-xs mt-0.5 truncate">
-                            📍 {parada.paciente?.endereco ?? parada.paciente?.municipio ?? '—'}
-                          </p>
-                          <p className="text-xs mt-1">
-                            <span className="text-gray-500">🏥 </span>
-                            <span className={isEmbarcado ? 'text-blue-400' : isConcluido ? 'text-green-400' : 'text-gray-400'}>
-                              {parada.hospital?.nome ?? 'Hospital não informado'}
-                            </span>
-                          </p>
-                          {/* Horários */}
-                          <div className="flex gap-3 mt-1.5 text-xs text-gray-500">
-                            {parada.hora_embarque && (
-                              <span>🕐 Embarque: {formatarHora(parada.hora_embarque)}</span>
-                            )}
-                            {parada.hora_chegada && (
-                              <span>🏁 Chegada: {formatarHora(parada.hora_chegada)}</span>
+                      {/* Linha principal — clicável para expandir */}
+                      <button
+                        className="w-full text-left p-4"
+                        onClick={() => setParadaExpandida(isExpandida ? null : parada.id)}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${STATUS_COR[parada.status]}`}>
+                            {parada.status === 'concluido' || parada.status === 'desembarcou' ? '✓' :
+                             parada.status === 'ausente'  ? '!' :
+                             parada.status === 'cancelou' ? '✕' :
+                             isEmbarcado ? '→' : i + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-base leading-tight truncate">
+                              {parada.paciente?.nome ?? 'Sem nome'}
+                            </p>
+                            <p className="text-gray-400 text-xs mt-0.5 truncate">
+                              📍 {parada.paciente?.endereco ?? parada.paciente?.municipio ?? '—'}
+                            </p>
+                            <p className="text-xs mt-0.5 truncate">
+                              <span className="text-gray-500">🏥 </span>
+                              <span className="text-gray-300">{parada.hospital?.nome ?? '—'}</span>
+                            </p>
+                            {(parada.hora_embarque || parada.hora_chegada) && (
+                              <div className="flex gap-3 mt-1 text-xs text-gray-500">
+                                {parada.hora_embarque && <span>🕐 {formatarHora(parada.hora_embarque)}</span>}
+                                {parada.hora_chegada  && <span>🏁 {formatarHora(parada.hora_chegada)}</span>}
+                              </div>
                             )}
                           </div>
+                          <div className="flex flex-col items-end gap-1">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${STATUS_COR[parada.status]}`}>
+                              {STATUS_LABEL[parada.status]}
+                            </span>
+                            <span className="text-gray-600 text-xs">{isExpandida ? '▲' : '▼'}</span>
+                          </div>
                         </div>
+                      </button>
 
-                        {/* Status badge */}
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${
-                          isConcluido ? 'bg-green-800 text-green-300' :
-                          isEmbarcado ? 'bg-blue-800 text-blue-300' :
-                          'bg-gray-700 text-gray-400'
-                        }`}>
-                          {isConcluido ? 'Entregue' : isEmbarcado ? 'A bordo' : 'Pendente'}
-                        </span>
-                      </div>
+                      {/* Botões — expandido */}
+                      {isExpandida && (
+                        <div className="px-4 pb-4 border-t border-gray-700 pt-3 space-y-2">
 
-                      {/* Botões de ação — só aparecem quando a rota está em andamento */}
-                      {emAndamento && !isConcluido && (
-                        <div className="mt-3 pt-3 border-t border-gray-700">
-                          {isPendente && (
+                          {/* Google Maps — sempre disponível */}
+                          <div className="grid grid-cols-2 gap-2">
                             <button
-                              onClick={() => handleEmbarque(parada)}
-                              disabled={isSalvando}
-                              className="w-full bg-blue-700 hover:bg-blue-600 active:scale-95 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-base transition-all flex items-center justify-center gap-2"
+                              onClick={() => abrirGoogleMaps(parada.paciente?.lat, parada.paciente?.lng, parada.paciente?.nome ?? '')}
+                              className="bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors"
                             >
-                              {isSalvando ? (
-                                <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white inline-block" />
-                              ) : (
-                                '✅ Confirmar embarque'
-                              )}
+                              🗺️ Ver endereço
                             </button>
-                          )}
-                          {isEmbarcado && (
                             <button
-                              onClick={() => handleConcluirParada(parada)}
-                              disabled={isSalvando}
-                              className="w-full bg-green-700 hover:bg-green-600 active:scale-95 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-base transition-all flex items-center justify-center gap-2"
+                              onClick={() => abrirGoogleMaps(parada.hospital?.lat, parada.hospital?.lng, parada.hospital?.nome ?? '')}
+                              className="bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors"
                             >
-                              {isSalvando ? (
-                                <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white inline-block" />
-                              ) : (
-                                '🏥 Entregue no hospital'
-                              )}
+                              🏥 Ver hospital
                             </button>
+                          </div>
+
+                          {/* Ações de status — só quando em andamento e não finalizado */}
+                          {emAndamento && !isFinalizado && (
+                            <>
+                              {isPendente && (
+                                <div className="grid grid-cols-3 gap-2">
+                                  <button
+                                    onClick={() => atualizarParada(parada.id, 'embarcado', { hora_embarque: new Date().toISOString() })}
+                                    disabled={isSalvando}
+                                    className="col-span-3 bg-blue-700 hover:bg-blue-600 active:scale-95 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-sm transition-all"
+                                  >
+                                    {isSalvando ? '…' : '✅ Confirmar embarque'}
+                                  </button>
+                                  <button
+                                    onClick={() => atualizarParada(parada.id, 'ausente')}
+                                    disabled={isSalvando}
+                                    className="bg-yellow-800 hover:bg-yellow-700 active:scale-95 disabled:opacity-50 text-yellow-200 font-semibold py-2.5 rounded-xl text-xs transition-all"
+                                  >
+                                    ⚠️ Ausente
+                                  </button>
+                                  <button
+                                    onClick={() => atualizarParada(parada.id, 'cancelou')}
+                                    disabled={isSalvando}
+                                    className="bg-red-900 hover:bg-red-800 active:scale-95 disabled:opacity-50 text-red-300 font-semibold py-2.5 rounded-xl text-xs transition-all"
+                                  >
+                                    ✕ Cancelou
+                                  </button>
+                                  <button
+                                    onClick={() => atualizarParada(parada.id, 'pendente')}
+                                    disabled={isSalvando}
+                                    className="bg-gray-700 hover:bg-gray-600 active:scale-95 disabled:opacity-50 text-gray-300 font-semibold py-2.5 rounded-xl text-xs transition-all"
+                                  >
+                                    ↩ Voltar
+                                  </button>
+                                </div>
+                              )}
+                              {isEmbarcado && (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button
+                                    onClick={() => atualizarParada(parada.id, 'desembarcou', { hora_chegada: new Date().toISOString() })}
+                                    disabled={isSalvando}
+                                    className="bg-green-700 hover:bg-green-600 active:scale-95 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-sm transition-all"
+                                  >
+                                    {isSalvando ? '…' : '🏥 Desembarcou'}
+                                  </button>
+                                  <button
+                                    onClick={() => atualizarParada(parada.id, 'concluido', { hora_chegada: new Date().toISOString() })}
+                                    disabled={isSalvando}
+                                    className="bg-teal-800 hover:bg-teal-700 active:scale-95 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-sm transition-all"
+                                  >
+                                    {isSalvando ? '…' : '✓ Entregue'}
+                                  </button>
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       )}
@@ -418,9 +444,7 @@ export default function MotoristaPage() {
               <button
                 onClick={emAndamento ? handleFinalizar : handleIniciarRota}
                 className={`w-full font-extrabold py-5 rounded-2xl text-xl tracking-wide active:scale-95 transition-all text-white mt-2 ${
-                  emAndamento
-                    ? 'bg-orange-600 hover:bg-orange-500'
-                    : 'bg-blue-600 hover:bg-blue-500'
+                  emAndamento ? 'bg-orange-600 hover:bg-orange-500' : 'bg-blue-600 hover:bg-blue-500'
                 }`}
               >
                 {emAndamento ? '🏁 Finalizar Rota' : '🚀 Iniciar Rota'}
@@ -431,7 +455,10 @@ export default function MotoristaPage() {
       </main>
 
       <footer className="px-5 py-4 border-t border-gray-800">
-        <button onClick={handleSair} className="w-full text-gray-600 hover:text-gray-400 text-sm py-2 transition-colors">
+        <button
+          onClick={async () => { pararGPS(); await supabase.auth.signOut(); router.push('/login') }}
+          className="w-full text-gray-600 hover:text-gray-400 text-sm py-2 transition-colors"
+        >
           Sair da conta
         </button>
       </footer>

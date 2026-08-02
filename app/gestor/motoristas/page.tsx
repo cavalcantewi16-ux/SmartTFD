@@ -126,6 +126,10 @@ export default function MotoristasPage() {
                 </p>
               )}
               <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2">
+                <a href={`/gestor/motoristas/${m.id}`}
+                  className="flex-1 text-xs text-gray-600 hover:bg-gray-50 py-1.5 rounded-md transition-colors font-medium text-center">
+                  👁️ Perfil
+                </a>
                 <button onClick={() => abrirEdicao(m)}
                   className="flex-1 text-xs text-blue-700 hover:bg-blue-50 py-1.5 rounded-md transition-colors font-medium">
                   ✏️ Editar

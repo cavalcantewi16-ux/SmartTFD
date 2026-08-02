@@ -90,7 +90,30 @@ export default function HistoricoPage() {
   const viagensFiltradas = viagens.filter(v => {
     if (!busca) return true
     const b = busca.toLowerCase()
-    return (
+  
+  function exportarCSV() {
+    const linhas = [
+      ['Data', 'Status', 'Motorista', 'Veículo', 'Pacientes', 'Entregues'].join(';'),
+      ...viagensFiltradas.map(v => [
+        v.data,
+        v.status,
+        v.motorista?.nome ?? '—',
+        v.veiculo?.modelo ?? '—',
+        v.paradas?.length ?? 0,
+        v.paradas?.filter(p => ['concluido','desembarcou'].includes(p.status)).length ?? 0,
+      ].join(';'))
+    ]
+    const csv = linhas.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `smarttfd_relatorio_${dataInicio}_${dataFim}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
       (v.motorista?.nome ?? '').toLowerCase().includes(b) ||
       (v.veiculo?.modelo ?? '').toLowerCase().includes(b) ||
       v.paradas?.some(p =>
@@ -117,6 +140,29 @@ export default function HistoricoPage() {
 
   const temFiltroAtivo = filtroStatus || filtroMotorista || busca
 
+
+  function exportarCSV() {
+    const linhas = [
+      ['Data', 'Status', 'Motorista', 'Veículo', 'Pacientes', 'Entregues'].join(';'),
+      ...viagensFiltradas.map(v => [
+        v.data,
+        v.status,
+        v.motorista?.nome ?? '—',
+        v.veiculo?.modelo ?? '—',
+        v.paradas?.length ?? 0,
+        v.paradas?.filter(p => ['concluido','desembarcou'].includes(p.status)).length ?? 0,
+      ].join(';'))
+    ]
+    const csv = linhas.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `smarttfd_relatorio_${dataInicio}_${dataFim}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="flex-1 flex flex-col p-4 gap-4">
 
@@ -126,11 +172,19 @@ export default function HistoricoPage() {
           <h2 className="text-lg font-bold text-gray-800">Histórico de Viagens</h2>
           <p className="text-sm text-gray-500">{viagensFiltradas.length} viagem{viagensFiltradas.length !== 1 ? 's' : ''} encontrada{viagensFiltradas.length !== 1 ? 's' : ''}</p>
         </div>
-        {temFiltroAtivo && (
-          <button onClick={limparFiltros} className="text-xs text-blue-700 hover:underline">
-            ✕ Limpar filtros
+          <div className="flex items-center gap-3">
+          {temFiltroAtivo && (
+            <button onClick={limparFiltros} className="text-xs text-blue-700 hover:underline">
+              ✕ Limpar filtros
+            </button>
+          )}
+          <button
+            onClick={exportarCSV}
+            className="bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-800 transition-colors flex items-center gap-1.5"
+          >
+            ⬇️ Exportar CSV
           </button>
-        )}
+        </div>
       </div>
 
       {/* Cards de estatísticas */}
@@ -209,7 +263,30 @@ export default function HistoricoPage() {
             const concluidos = v.paradas?.filter(p => p.status === 'concluido').length ?? 0
             const total = v.paradas?.length ?? 0
 
-            return (
+          
+  function exportarCSV() {
+    const linhas = [
+      ['Data', 'Status', 'Motorista', 'Veículo', 'Pacientes', 'Entregues'].join(';'),
+      ...viagensFiltradas.map(v => [
+        v.data,
+        v.status,
+        v.motorista?.nome ?? '—',
+        v.veiculo?.modelo ?? '—',
+        v.paradas?.length ?? 0,
+        v.paradas?.filter(p => ['concluido','desembarcou'].includes(p.status)).length ?? 0,
+      ].join(';'))
+    ]
+    const csv = linhas.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `smarttfd_relatorio_${dataInicio}_${dataFim}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
               <div key={v.id} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
                 {/* Linha principal */}
                 <button
@@ -268,7 +345,30 @@ export default function HistoricoPage() {
                               embarcado: 'bg-blue-100 text-blue-700',
                               concluido: 'bg-green-100 text-green-700',
                             }
-                            return (
+                          
+  function exportarCSV() {
+    const linhas = [
+      ['Data', 'Status', 'Motorista', 'Veículo', 'Pacientes', 'Entregues'].join(';'),
+      ...viagensFiltradas.map(v => [
+        v.data,
+        v.status,
+        v.motorista?.nome ?? '—',
+        v.veiculo?.modelo ?? '—',
+        v.paradas?.length ?? 0,
+        v.paradas?.filter(p => ['concluido','desembarcou'].includes(p.status)).length ?? 0,
+      ].join(';'))
+    ]
+    const csv = linhas.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `smarttfd_relatorio_${dataInicio}_${dataFim}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
                               <div key={i} className="flex items-center gap-3 text-xs">
                                 <span className={`w-5 h-5 rounded-full flex items-center justify-center font-bold flex-shrink-0 ${paradaStatus[p.status] ?? 'bg-gray-100 text-gray-500'}`}>
                                   {i + 1}
