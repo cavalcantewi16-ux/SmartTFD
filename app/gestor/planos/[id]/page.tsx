@@ -10,6 +10,7 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import PlanTimeline from '@/components/PlanTimeline'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface Hospital  { id: string; nome: string; cidade?: string }
@@ -201,6 +202,7 @@ export default function EditarPlano() {
   const [salvandoLeg,  setSalvandoLeg]  = useState(false)
   const [salvandoOrdem,setSalvandoOrdem]= useState(false)
   const [msg,          setMsg]          = useState('')
+  const [aba,          setAba]          = useState<'editar'|'timeline'>('editar')
 
   const [formHospital, setFormHospital] = useState('')
   const [formHorario,  setFormHorario]  = useState('08:00')
@@ -359,6 +361,25 @@ export default function EditarPlano() {
         </select>
       </div>
 
+      {/* Abas */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+        <button onClick={() => setAba('editar')}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors
+            ${aba === 'editar' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+          ✏️ Editar Plano
+        </button>
+        <button onClick={() => setAba('timeline')}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors
+            ${aba === 'timeline' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+          📅 Linha do Tempo
+        </button>
+      </div>
+
+      {aba === 'timeline' && (
+        <PlanTimeline data={plano.data} legs={legs} />
+      )}
+
+      {aba === 'editar' && <>
       {/* Resumo */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-blue-50 rounded-xl p-4 text-center">
@@ -391,6 +412,8 @@ export default function EditarPlano() {
           ))}
         </div>
       )}
+
+      </> }
 
       {/* Painel lateral */}
       {painelAberto && (
