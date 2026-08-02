@@ -23,6 +23,14 @@ export default function MotoristasPage() {
   const [erro, setErro] = useState('')
   const [modalAberto, setModalAberto] = useState(false)
   const [busca, setBusca] = useState('')
+  const [modalSenha,   setModalSenha]   = useState(false)
+  const [senhaMotoristaId, setSenhaMotoristaId] = useState<string | null>(null)
+  const [senhaMotoristaEmail, setSenhaMotoristaEmail] = useState('')
+  const [novaSenha,    setNovaSenha]    = useState('')
+  const [confirmSenha, setConfirmSenha] = useState('')
+  const [salvandoSenha,setSalvandoSenha]= useState(false)
+  const [erroSenha,    setErroSenha]    = useState('')
+  const [okSenha,      setOkSenha]      = useState('')
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -73,6 +81,30 @@ export default function MotoristasPage() {
     setSalvando(false)
     setModalAberto(false)
     carregar()
+  }
+
+  async function handleResetSenha() {
+    if (!senhaMotoristaId) return
+    if (novaSenha.length < 6) { setErroSenha('Mínimo 6 caracteres'); return }
+    if (novaSenha !== confirmSenha) { setErroSenha('As senhas não coincidem'); return }
+    setSalvandoSenha(true); setErroSenha(''); setOkSenha('')
+    const res = await fetch('/api/admin/reset-senha', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motorista_id: senhaMotoristaId, nova_senha: novaSenha }),
+    })
+    const data = await res.json()
+    setSalvandoSenha(false)
+    if (!res.ok) { setErroSenha(data.error || 'Erro desconhecido'); return }
+    setOkSenha('✅ Senha alterada com sucesso!')
+    setNovaSenha(''); setConfirmSenha('')
+    setTimeout(() => { setModalSenha(false); setOkSenha('') }, 1800)
+  }
+
+  function abrirModalSenha(id: string, email: string) {
+    setSenhaMotoristaId(id); setSenhaMotoristaEmail(email)
+    setNovaSenha(''); setConfirmSenha(''); setErroSenha(''); setOkSenha('')
+    setModalSenha(true)
   }
 
   const filtrados = motoristas.filter(m =>
@@ -134,9 +166,54 @@ export default function MotoristasPage() {
                   className="flex-1 text-xs text-blue-700 hover:bg-blue-50 py-1.5 rounded-md transition-colors font-medium">
                   ✏️ Editar
                 </button>
+                <button onClick={() => abrirModalSenha(m.id, m.email)}
+                  className="flex-1 text-xs text-orange-600 hover:bg-orange-50 py-1.5 rounded-md transition-colors font-medium">
+                  🔑 Senha
+                </button>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Modal de redefinição de senha */}
+      {modalSenha && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <h3 className="text-base font-bold text-gray-800">🔑 Redefinir Senha</h3>
+              <button onClick={() => setModalSenha(false)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-500">
+                Motorista: <span className="font-medium text-gray-700">{senhaMotoristaEmail}</span>
+              </p>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Nova senha <span className="text-red-500">*</span></label>
+                <input type="password" value={novaSenha} onChange={e => setNovaSenha(e.target.value)}
+                  placeholder="Mín. 6 caracteres"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Confirmar senha <span className="text-red-500">*</span></label>
+                <input type="password" value={confirmSenha} onChange={e => setConfirmSenha(e.target.value)}
+                  placeholder="Repita a senha"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+              </div>
+              {erroSenha && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">{erroSenha}</div>}
+              {okSenha   && <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-3 py-2 text-sm">{okSenha}</div>}
+            </div>
+            <div className="flex gap-3 p-6 pt-0">
+              <button onClick={() => setModalSenha(false)}
+                className="flex-1 border border-gray-200 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={handleResetSenha} disabled={salvandoSenha}
+                className="flex-1 bg-orange-500 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-60 flex items-center justify-center gap-2">
+                {salvandoSenha ? 'Salvando…' : '🔑 Salvar Senha'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
