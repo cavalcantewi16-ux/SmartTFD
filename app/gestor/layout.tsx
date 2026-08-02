@@ -2,7 +2,8 @@ import Link from 'next/link'
 
 const navItems = [
   { href: '/gestor',            label: '🗺️ Painel',     exact: true },
-  { href: '/gestor/motoristas', label: '👤 Motoristas' },
+  { href: '/gestor/pacientes',  label: '👤 Pacientes'  },
+  { href: '/gestor/motoristas', label: '🧑‍✈️ Motoristas' },
   { href: '/gestor/veiculos',   label: '🚐 Veículos'   },
   { href: '/gestor/historico',  label: '📋 Histórico'  },
 ]
@@ -22,12 +23,12 @@ export default function GestorLayout({
             <span className="text-blue-400 font-normal text-sm ml-2">Gestor</span>
           </span>
 
-          <nav className="flex gap-1">
+          <nav className="flex gap-1 overflow-x-auto">
             {navItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="px-3 py-1.5 rounded-md text-sm font-medium text-blue-100 hover:bg-blue-700 hover:text-white transition-colors"
+                className="px-3 py-1.5 rounded-md text-sm font-medium text-blue-100 hover:bg-blue-700 hover:text-white transition-colors whitespace-nowrap"
               >
                 {item.label}
               </Link>
@@ -36,7 +37,7 @@ export default function GestorLayout({
 
           <Link
             href="/login"
-            className="text-blue-300 hover:text-white text-sm transition-colors"
+            className="text-blue-300 hover:text-white text-sm transition-colors whitespace-nowrap"
           >
             Sair
           </Link>
