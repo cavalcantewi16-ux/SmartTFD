@@ -6,24 +6,38 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import type { Database } from '@/types/database'
 
 type StatusViagem = 'pendente' | 'em_andamento' | 'concluida' | 'cancelada'
+type StatusParada = 'pendente' | 'embarcado' | 'concluido'
 
-interface DadosMotorista { id: string; nome: string }
+interface Parada {
+  id: string
+  ordem: number
+  status: StatusParada
+  hora_embarque?: string | null
+  hora_chegada?: string | null
+  paciente: { nome: string; municipio: string; endereco: string } | null
+  hospital: { nome: string; municipio: string } | null
+}
+
 interface DadosViagem {
-  id: string; status: StatusViagem
-  veiculoModelo: string; veiculoCapacidade: number
+  id: string
+  status: StatusViagem
+  veiculoModelo: string
+  veiculoCapacidade: number
+  paradas: Parada[]
 }
 
 export default function MotoristaPage() {
   const supabase = createClientComponentClient<Database>()
   const router = useRouter()
 
-  const [motorista, setMotorista] = useState<DadosMotorista | null>(null)
+  const [nomeMotorista, setNomeMotorista] = useState('')
+  const [motoristaId, setMotoristaId] = useState('')
   const [viagem, setViagem] = useState<DadosViagem | null>(null)
-  const [passageiros, setPassageiros] = useState(0)
   const [gpsAtivo, setGpsAtivo] = useState(false)
   const [coordenadas, setCoordenadas] = useState<{ lat: number; lng: number } | null>(null)
   const [carregando, setCarregando] = useState(true)
-  const [mensagem, setMensagem] = useState('')
+  const [mensagem, setMensagem] = useState<{ texto: string; tipo: 'info' | 'erro' | 'ok' } | null>(null)
+  const [salvandoParada, setSalvandoParada] = useState<string | null>(null)
 
   const watchIdRef = useRef<number | null>(null)
   const ultimoUpsertRef = useRef<number>(0)
@@ -35,12 +49,21 @@ export default function MotoristaPage() {
     const { data: perfil } = await supabase
       .from('profiles').select('id, nome').eq('id', user.id).single()
     if (!perfil) { setCarregando(false); return }
-    setMotorista({ id: perfil.id, nome: perfil.nome })
+    setNomeMotorista(perfil.nome)
+    setMotoristaId(perfil.id)
 
     const hoje = new Date().toISOString().split('T')[0]
     const { data: v } = await supabase
       .from('viagens')
-      .select('id, status, veiculos!veiculo_id(modelo, capacidade), viagem_paradas(status)')
+      .select(`
+        id, status,
+        veiculos!veiculo_id(modelo, capacidade),
+        viagem_paradas(
+          id, ordem, status, hora_embarque, hora_chegada,
+          paciente:pacientes(nome, municipio, endereco),
+          hospital:hospitais(nome, municipio)
+        )
+      `)
       .eq('motorista_id', user.id)
       .eq('data', hoje)
       .in('status', ['pendente', 'em_andamento'])
@@ -50,13 +73,25 @@ export default function MotoristaPage() {
 
     if (v) {
       const veiculo = v.veiculos as any
-      const paradas = (v.viagem_paradas as any[]) ?? []
+      const paradas = ((v.viagem_paradas as any[]) ?? [])
+        .sort((a: any, b: any) => a.ordem - b.ordem)
+        .map((p: any) => ({
+          id: p.id,
+          ordem: p.ordem,
+          status: p.status as StatusParada,
+          hora_embarque: p.hora_embarque,
+          hora_chegada: p.hora_chegada,
+          paciente: p.paciente ?? null,
+          hospital: p.hospital ?? null,
+        }))
+
       setViagem({
-        id: v.id, status: v.status as StatusViagem,
+        id: v.id,
+        status: v.status as StatusViagem,
         veiculoModelo: veiculo?.modelo ?? 'Veículo',
         veiculoCapacidade: veiculo?.capacidade ?? 4,
+        paradas,
       })
-      setPassageiros(paradas.filter((p: any) => p.status === 'embarcado').length)
     }
     setCarregando(false)
   }, [supabase, router])
@@ -66,8 +101,11 @@ export default function MotoristaPage() {
     return () => pararGPS()
   }, [carregarDados])
 
-  function iniciarGPS(motoristaId: string) {
-    if (!navigator.geolocation) { setMensagem('GPS não suportado neste dispositivo.'); return }
+  function iniciarGPS(id: string) {
+    if (!navigator.geolocation) {
+      setMensagem({ texto: 'GPS não disponível neste dispositivo.', tipo: 'erro' })
+      return
+    }
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
         const lat = pos.coords.latitude
@@ -78,11 +116,14 @@ export default function MotoristaPage() {
         if (agora - ultimoUpsertRef.current < 5000) return
         ultimoUpsertRef.current = agora
         await supabase.from('motorista_localizacao').upsert({
-          motorista_id: motoristaId, lat, lng,
+          motorista_id: id, lat, lng,
           atualizado_em: new Date().toISOString(),
         })
       },
-      () => { setGpsAtivo(false); setMensagem('Erro de GPS. Verifique as permissões.') },
+      () => {
+        setGpsAtivo(false)
+        setMensagem({ texto: 'Erro no GPS. Verifique as permissões.', tipo: 'erro' })
+      },
       { enableHighAccuracy: true, maximumAge: 5000 }
     )
   }
@@ -96,43 +137,75 @@ export default function MotoristaPage() {
   }
 
   async function handleIniciarRota() {
-    if (!viagem || !motorista) return
-    setMensagem('')
-    const { error } = await supabase.from('viagens').update({ status: 'em_andamento' }).eq('id', viagem.id)
-    if (error) { setMensagem('Erro ao iniciar rota.'); return }
-    setViagem(v => v ? { ...v, status: 'em_andamento' } : v)
-    iniciarGPS(motorista.id)
-  }
-
-  async function handleEmbarque() {
     if (!viagem) return
-    if (passageiros >= viagem.veiculoCapacidade) { setMensagem('Capacidade máxima atingida.'); return }
-    setPassageiros(p => p + 1)
-    setMensagem('')
-    await supabase.from('viagem_paradas').insert({
-      viagem_id: viagem.id, paciente_id: null as any, hospital_id: null as any,
-      ordem: passageiros + 1, status: 'embarcado',
-      hora_embarque: new Date().toISOString(),
-    })
+    setMensagem(null)
+    const { error } = await supabase.from('viagens').update({ status: 'em_andamento' }).eq('id', viagem.id)
+    if (error) { setMensagem({ texto: 'Erro ao iniciar rota.', tipo: 'erro' }); return }
+    setViagem(v => v ? { ...v, status: 'em_andamento' } : v)
+    iniciarGPS(motoristaId)
+    setMensagem({ texto: 'Rota iniciada! GPS ativado.', tipo: 'ok' })
+    setTimeout(() => setMensagem(null), 3000)
   }
 
-  async function handleRemover() {
-    if (!viagem || passageiros <= 0) return
-    setPassageiros(p => p - 1)
-    setMensagem('')
-    const { data } = await supabase.from('viagem_paradas')
-      .select('id').eq('viagem_id', viagem.id).eq('status', 'embarcado')
-      .order('hora_embarque', { ascending: false }).limit(1).single()
-    if (data) await supabase.from('viagem_paradas').delete().eq('id', data.id)
+  async function handleEmbarque(parada: Parada) {
+    if (!viagem || parada.status !== 'pendente') return
+    setSalvandoParada(parada.id)
+    const { error } = await supabase
+      .from('viagem_paradas')
+      .update({ status: 'embarcado', hora_embarque: new Date().toISOString() })
+      .eq('id', parada.id)
+    if (error) {
+      setMensagem({ texto: 'Erro ao registrar embarque.', tipo: 'erro' })
+    } else {
+      setViagem(v => v ? {
+        ...v,
+        paradas: v.paradas.map(p => p.id === parada.id
+          ? { ...p, status: 'embarcado', hora_embarque: new Date().toISOString() }
+          : p
+        )
+      } : v)
+      setMensagem({ texto: `${parada.paciente?.nome ?? 'Paciente'} embarcou!`, tipo: 'ok' })
+      setTimeout(() => setMensagem(null), 2500)
+    }
+    setSalvandoParada(null)
+  }
+
+  async function handleConcluirParada(parada: Parada) {
+    if (!viagem || parada.status !== 'embarcado') return
+    setSalvandoParada(parada.id)
+    const { error } = await supabase
+      .from('viagem_paradas')
+      .update({ status: 'concluido', hora_chegada: new Date().toISOString() })
+      .eq('id', parada.id)
+    if (error) {
+      setMensagem({ texto: 'Erro ao concluir parada.', tipo: 'erro' })
+    } else {
+      setViagem(v => v ? {
+        ...v,
+        paradas: v.paradas.map(p => p.id === parada.id
+          ? { ...p, status: 'concluido', hora_chegada: new Date().toISOString() }
+          : p
+        )
+      } : v)
+      setMensagem({ texto: `${parada.paciente?.nome ?? 'Paciente'} entregue!`, tipo: 'ok' })
+      setTimeout(() => setMensagem(null), 2500)
+    }
+    setSalvandoParada(null)
   }
 
   async function handleFinalizar() {
-    if (!viagem || !window.confirm('Confirmar finalização da rota?')) return
+    if (!viagem) return
+    const todasConcluidas = viagem.paradas.every(p => p.status === 'concluido')
+    if (!todasConcluidas) {
+      const confirmar = window.confirm('Ainda há pacientes pendentes. Deseja finalizar mesmo assim?')
+      if (!confirmar) return
+    } else {
+      if (!window.confirm('Confirmar finalização da rota?')) return
+    }
     await supabase.from('viagens').update({ status: 'concluida' }).eq('id', viagem.id)
     pararGPS()
     setViagem(v => v ? { ...v, status: 'concluida' } : v)
-    setPassageiros(0)
-    setMensagem('Rota finalizada com sucesso!')
+    setMensagem({ texto: 'Rota finalizada! Bom trabalho! 🎉', tipo: 'ok' })
   }
 
   async function handleSair() {
@@ -141,9 +214,16 @@ export default function MotoristaPage() {
     router.push('/login')
   }
 
-  const vagas = viagem ? viagem.veiculoCapacidade - passageiros : 0
   const emAndamento = viagem?.status === 'em_andamento'
   const concluida = viagem?.status === 'concluida'
+  const embarcados = viagem?.paradas.filter(p => p.status === 'embarcado').length ?? 0
+  const concluidos = viagem?.paradas.filter(p => p.status === 'concluido').length ?? 0
+  const totalParadas = viagem?.paradas.length ?? 0
+
+  function formatarHora(iso?: string | null) {
+    if (!iso) return null
+    return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col max-w-md mx-auto">
@@ -152,97 +232,192 @@ export default function MotoristaPage() {
       <header className="bg-gray-900 px-5 py-4 flex items-center justify-between border-b border-gray-800">
         <div>
           <h1 className="font-extrabold text-xl">Smart<span className="text-blue-400">TFD</span></h1>
-          <p className="text-gray-400 text-xs mt-0.5">App do Motorista</p>
+          <p className="text-gray-400 text-xs mt-0.5">{nomeMotorista || 'Motorista'}</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`w-3 h-3 rounded-full transition-colors ${gpsAtivo ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
-          <span className={`text-sm font-medium ${gpsAtivo ? 'text-green-400' : 'text-gray-500'}`}>
-            {gpsAtivo ? 'GPS ativo' : 'GPS inativo'}
+          <span className={`w-2.5 h-2.5 rounded-full ${gpsAtivo ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
+          <span className={`text-xs font-medium ${gpsAtivo ? 'text-green-400' : 'text-gray-500'}`}>
+            {gpsAtivo ? 'GPS ativo' : 'GPS off'}
           </span>
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col gap-4 p-5">
+      <main className="flex-1 flex flex-col gap-4 p-4 pb-6">
         {carregando ? (
           <div className="flex-1 flex items-center justify-center text-gray-500">
             <p className="text-lg animate-pulse">Carregando…</p>
           </div>
+        ) : !viagem ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center py-12">
+            <span className="text-6xl">📋</span>
+            <p className="text-gray-300 font-bold text-xl">Nenhuma rota hoje</p>
+            <p className="text-gray-500 text-sm">O gestor ainda não criou sua rota para hoje.</p>
+          </div>
         ) : (
           <>
-            {/* Card do motorista */}
-            <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700">
-              <p className="text-gray-400 text-xs uppercase tracking-widest mb-1">Motorista</p>
-              <p className="font-bold text-2xl">{motorista?.nome ?? '—'}</p>
-              <p className="text-blue-400 text-base mt-1">🚐 {viagem?.veiculoModelo ?? 'Nenhum veículo atribuído'}</p>
+            {/* Card veículo + progresso */}
+            <div className="bg-gray-800 rounded-2xl p-4 border border-gray-700">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-gray-400 text-xs uppercase tracking-widest">Veículo</p>
+                  <p className="font-bold text-lg">🚐 {viagem.veiculoModelo}</p>
+                </div>
+                <div className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                  emAndamento ? 'bg-blue-900 text-blue-300' :
+                  concluida ? 'bg-green-900 text-green-300' :
+                  'bg-gray-700 text-gray-300'
+                }`}>
+                  {emAndamento ? 'Em andamento' : concluida ? 'Concluída' : 'Pendente'}
+                </div>
+              </div>
+
+              {/* Barra de progresso */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span>{concluidos} entregues · {embarcados} a bordo · {totalParadas - embarcados - concluidos} pendentes</span>
+                  <span>{totalParadas} total</span>
+                </div>
+                <div className="h-2 bg-gray-700 rounded-full overflow-hidden flex">
+                  <div className="bg-green-500 transition-all" style={{ width: `${(concluidos / Math.max(totalParadas, 1)) * 100}%` }} />
+                  <div className="bg-blue-500 transition-all" style={{ width: `${(embarcados / Math.max(totalParadas, 1)) * 100}%` }} />
+                </div>
+                <div className="flex gap-3 text-xs text-gray-500">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />Entregue</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />A bordo</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-600 inline-block" />Pendente</span>
+                </div>
+              </div>
+
               {coordenadas && (
-                <p className="text-gray-500 text-xs mt-2">
+                <p className="text-gray-600 text-xs mt-2">
                   📍 {coordenadas.lat.toFixed(5)}, {coordenadas.lng.toFixed(5)}
                 </p>
               )}
             </div>
 
-            {/* Cards de status */}
-            {viagem && (
-              <div className="grid grid-cols-3 gap-3">
-                <StatusCard valor={passageiros} label="Pacientes" cor="text-blue-400" bg="bg-blue-950" />
-                <StatusCard
-                  valor={vagas} label="Vagas"
-                  cor={vagas === 0 ? 'text-red-400' : 'text-green-400'}
-                  bg={vagas === 0 ? 'bg-red-950' : 'bg-green-950'}
-                />
-                <StatusCard valor={viagem.veiculoCapacidade} label="Capacidade" cor="text-gray-300" bg="bg-gray-800" />
-              </div>
-            )}
-
-            {/* Sem viagem */}
-            {!viagem && (
-              <div className="bg-gray-800 rounded-2xl p-8 text-center border border-gray-700 flex-1 flex flex-col items-center justify-center gap-3">
-                <span className="text-5xl">📋</span>
-                <p className="text-gray-300 font-semibold text-lg">Nenhuma rota para hoje</p>
-                <p className="text-gray-500 text-sm">O gestor ainda não criou sua rota.</p>
+            {/* Mensagem de feedback */}
+            {mensagem && (
+              <div className={`rounded-xl px-4 py-3 text-sm text-center font-medium border ${
+                mensagem.tipo === 'ok' ? 'bg-green-900 border-green-700 text-green-300' :
+                mensagem.tipo === 'erro' ? 'bg-red-900 border-red-700 text-red-300' :
+                'bg-yellow-900 border-yellow-700 text-yellow-300'
+              }`}>
+                {mensagem.texto}
               </div>
             )}
 
             {/* Rota concluída */}
             {concluida && (
-              <div className="bg-green-900 border border-green-700 rounded-2xl p-5 text-center">
-                <p className="text-green-300 font-bold text-xl">✅ Rota finalizada!</p>
-                <p className="text-green-400 text-sm mt-1">Bom trabalho!</p>
+              <div className="bg-green-900 border border-green-700 rounded-2xl p-6 text-center">
+                <p className="text-4xl mb-2">🎉</p>
+                <p className="text-green-300 font-bold text-xl">Rota finalizada!</p>
+                <p className="text-green-500 text-sm mt-1">Bom trabalho hoje!</p>
               </div>
             )}
 
-            {/* Feedback */}
-            {mensagem && (
-              <div className="bg-yellow-900 border border-yellow-700 rounded-xl px-4 py-3 text-yellow-300 text-sm text-center">
-                {mensagem}
-              </div>
-            )}
+            {/* Lista de paradas */}
+            {!concluida && totalParadas > 0 && (
+              <div className="flex flex-col gap-3">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Paradas da rota</p>
+                {viagem.paradas.map((parada, i) => {
+                  const isSalvando = salvandoParada === parada.id
+                  const isPendente = parada.status === 'pendente'
+                  const isEmbarcado = parada.status === 'embarcado'
+                  const isConcluido = parada.status === 'concluido'
 
-            {/* Botões embarque */}
-            {emAndamento && (
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={handleEmbarque}
-                  disabled={passageiros >= (viagem?.veiculoCapacidade ?? 0)}
-                  className="bg-green-600 hover:bg-green-500 active:scale-95 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold py-6 rounded-2xl text-2xl transition-all"
-                >
-                  ＋ Embarque
-                </button>
-                <button
-                  onClick={handleRemover}
-                  disabled={passageiros <= 0}
-                  className="bg-red-700 hover:bg-red-600 active:scale-95 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold py-6 rounded-2xl text-2xl transition-all"
-                >
-                  － Remover
-                </button>
+                  return (
+                    <div key={parada.id} className={`rounded-2xl border p-4 transition-all ${
+                      isConcluido ? 'bg-green-950 border-green-800 opacity-70' :
+                      isEmbarcado ? 'bg-blue-950 border-blue-800' :
+                      'bg-gray-800 border-gray-700'
+                    }`}>
+                      <div className="flex items-start gap-3">
+                        {/* Número da parada */}
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
+                          isConcluido ? 'bg-green-700 text-green-200' :
+                          isEmbarcado ? 'bg-blue-700 text-blue-200' :
+                          'bg-gray-700 text-gray-300'
+                        }`}>
+                          {isConcluido ? '✓' : isEmbarcado ? '→' : i + 1}
+                        </div>
+
+                        {/* Info da parada */}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-base leading-tight">
+                            {parada.paciente?.nome ?? 'Paciente sem nome'}
+                          </p>
+                          <p className="text-gray-400 text-xs mt-0.5 truncate">
+                            📍 {parada.paciente?.endereco ?? parada.paciente?.municipio ?? '—'}
+                          </p>
+                          <p className="text-xs mt-1">
+                            <span className="text-gray-500">🏥 </span>
+                            <span className={isEmbarcado ? 'text-blue-400' : isConcluido ? 'text-green-400' : 'text-gray-400'}>
+                              {parada.hospital?.nome ?? 'Hospital não informado'}
+                            </span>
+                          </p>
+                          {/* Horários */}
+                          <div className="flex gap-3 mt-1.5 text-xs text-gray-500">
+                            {parada.hora_embarque && (
+                              <span>🕐 Embarque: {formatarHora(parada.hora_embarque)}</span>
+                            )}
+                            {parada.hora_chegada && (
+                              <span>🏁 Chegada: {formatarHora(parada.hora_chegada)}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Status badge */}
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${
+                          isConcluido ? 'bg-green-800 text-green-300' :
+                          isEmbarcado ? 'bg-blue-800 text-blue-300' :
+                          'bg-gray-700 text-gray-400'
+                        }`}>
+                          {isConcluido ? 'Entregue' : isEmbarcado ? 'A bordo' : 'Pendente'}
+                        </span>
+                      </div>
+
+                      {/* Botões de ação — só aparecem quando a rota está em andamento */}
+                      {emAndamento && !isConcluido && (
+                        <div className="mt-3 pt-3 border-t border-gray-700">
+                          {isPendente && (
+                            <button
+                              onClick={() => handleEmbarque(parada)}
+                              disabled={isSalvando}
+                              className="w-full bg-blue-700 hover:bg-blue-600 active:scale-95 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-base transition-all flex items-center justify-center gap-2"
+                            >
+                              {isSalvando ? (
+                                <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white inline-block" />
+                              ) : (
+                                '✅ Confirmar embarque'
+                              )}
+                            </button>
+                          )}
+                          {isEmbarcado && (
+                            <button
+                              onClick={() => handleConcluirParada(parada)}
+                              disabled={isSalvando}
+                              className="w-full bg-green-700 hover:bg-green-600 active:scale-95 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-base transition-all flex items-center justify-center gap-2"
+                            >
+                              {isSalvando ? (
+                                <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white inline-block" />
+                              ) : (
+                                '🏥 Entregue no hospital'
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
 
             {/* Botão principal */}
-            {viagem && !concluida && (
+            {!concluida && (
               <button
                 onClick={emAndamento ? handleFinalizar : handleIniciarRota}
-                className={`w-full font-extrabold py-6 rounded-2xl text-2xl tracking-wide active:scale-95 transition-all text-white ${
+                className={`w-full font-extrabold py-5 rounded-2xl text-xl tracking-wide active:scale-95 transition-all text-white mt-2 ${
                   emAndamento
                     ? 'bg-orange-600 hover:bg-orange-500'
                     : 'bg-blue-600 hover:bg-blue-500'
@@ -256,19 +431,10 @@ export default function MotoristaPage() {
       </main>
 
       <footer className="px-5 py-4 border-t border-gray-800">
-        <button onClick={handleSair} className="w-full text-gray-500 hover:text-gray-300 text-sm py-2 transition-colors">
+        <button onClick={handleSair} className="w-full text-gray-600 hover:text-gray-400 text-sm py-2 transition-colors">
           Sair da conta
         </button>
       </footer>
-    </div>
-  )
-}
-
-function StatusCard({ valor, label, cor, bg }: { valor: number; label: string; cor: string; bg: string }) {
-  return (
-    <div className={`${bg} rounded-2xl p-4 text-center border border-gray-700`}>
-      <p className={`text-4xl font-extrabold ${cor}`}>{valor}</p>
-      <p className="text-gray-400 text-xs mt-1 uppercase tracking-wide">{label}</p>
     </div>
   )
 }
