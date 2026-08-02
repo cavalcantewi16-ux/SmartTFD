@@ -60,6 +60,13 @@ export interface Veiculo {
   ativo: boolean
 }
 
+export interface MotoristaLocalizacao {
+  motorista_id: string
+  lat: number
+  lng: number
+  atualizado_em: string
+}
+
 export type Database = {
   public: {
     Tables: {
@@ -69,6 +76,7 @@ export type Database = {
       viagens: { Row: Viagem; Insert: Omit<Viagem, 'id' | 'created_at'>; Update: Partial<Viagem> }
       viagem_paradas: { Row: ViagemParada; Insert: Omit<ViagemParada, 'id'>; Update: Partial<ViagemParada> }
       veiculos: { Row: Veiculo; Insert: Omit<Veiculo, 'id'>; Update: Partial<Veiculo> }
+      motorista_localizacao: { Row: MotoristaLocalizacao; Insert: MotoristaLocalizacao; Update: Partial<MotoristaLocalizacao> }
     }
   }
 }
