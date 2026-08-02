@@ -16,7 +16,7 @@ async function geocodificar(nome: string, endereco: string, bairro: string, cida
   if (orsKey) {
     try {
       const r = await fetch(
-        `https://api.openrouteservice.org/geocode/search?api_key=${orsKey}` +
+        `https://api.heigit.org/geocode/search?api_key=${orsKey}` +
         `&text=${encodeURIComponent(texto)}&size=1&boundary.country=BRA`
       )
       const d = await r.json()
