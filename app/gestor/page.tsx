@@ -35,7 +35,8 @@ export default function GestorPage() {
       .eq('data', hoje)
       .in('status', ['pendente', 'em_andamento'])
 
-    const { data: locs } = await supabase.from('motorista_localizacao').select('*')
+    const { data: locsRaw } = await supabase.from('motorista_localizacao').select('*')
+    const locs = locsRaw as Array<{ motorista_id: string; lat: number; lng: number }> | null
 
     const lista: MotoristaAtivo[] = (viagens ?? []).map(v => {
       const loc = locs?.find(l => l.motorista_id === v.motorista_id)
