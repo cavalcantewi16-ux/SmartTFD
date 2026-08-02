@@ -1,467 +1,343 @@
 'use client'
-
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import type { Database, StatusParada } from '@/types/database'
 
 interface Parada {
-  id: string
-  ordem: number
-  status: StatusParada
-  hora_embarque?: string | null
-  hora_chegada?: string | null
-  paciente: { nome: string; municipio: string; endereco: string; lat: number; lng: number } | null
-  hospital: { nome: string; municipio: string; lat: number; lng: number } | null
+  id: string; viagem_id: string; paciente_id: string; hospital_id: string
+  ordem: number; status: string
+  paciente?: { nome: string; telefone?: string }
+  hospital?: { nome: string; lat?: number; lng?: number; endereco?: string }
+}
+interface Viagem {
+  id: string; data: string; status: string; observacoes?: string
+  veiculo?: { placa: string; modelo: string }
+  paradas?: Parada[]
 }
 
-interface DadosViagem {
-  id: string
-  status: 'pendente' | 'em_andamento' | 'concluida' | 'cancelada'
-  veiculoModelo: string
-  veiculoCapacidade: number
-  paradas: Parada[]
+const STATUS_COR: Record<string, string> = {
+  pendente:    'bg-yellow-100 text-yellow-800 border-yellow-200',
+  embarcado:   'bg-blue-100 text-blue-800 border-blue-200',
+  concluido:   'bg-green-100 text-green-800 border-green-200',
+  ausente:     'bg-gray-100 text-gray-600 border-gray-200',
+  cancelou:    'bg-red-100 text-red-600 border-red-200',
+  desembarcou: 'bg-purple-100 text-purple-800 border-purple-200',
+}
+const STATUS_LABEL: Record<string, string> = {
+  pendente: 'Pendente', embarcado: 'Embarcado', concluido: 'Concluído',
+  ausente: 'Ausente', cancelou: 'Cancelou', desembarcou: 'Desembarcou',
 }
 
-const STATUS_COR: Record<StatusParada, string> = {
-  pendente:    'bg-gray-700 text-gray-300',
-  embarcado:   'bg-blue-800 text-blue-200',
-  concluido:   'bg-green-800 text-green-200',
-  desembarcou: 'bg-green-800 text-green-200',
-  ausente:     'bg-yellow-800 text-yellow-200',
-  cancelou:    'bg-red-900 text-red-300',
-}
-
-const STATUS_LABEL: Record<StatusParada, string> = {
-  pendente:    'Pendente',
-  embarcado:   'A bordo',
-  concluido:   'Entregue',
-  desembarcou: 'Desembarcou',
-  ausente:     'Ausente',
-  cancelou:    'Cancelou',
-}
-
-export default function MotoristaPage() {
-  const supabase = createClientComponentClient<Database>()
-  const router = useRouter()
-
-  const [nomeMotorista, setNomeMotorista] = useState('')
-  const [motoristaId, setMotoristaId] = useState('')
-  const [viagem, setViagem] = useState<DadosViagem | null>(null)
+export default function MotoristaApp() {
+  const supabase = createClientComponentClient()
+  const [userId, setUserId]   = useState<string | null>(null)
+  const [viagem, setViagem]   = useState<Viagem | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [paradaAberta, setParadaAberta] = useState<string | null>(null)
   const [gpsAtivo, setGpsAtivo] = useState(false)
-  const [coordenadas, setCoordenadas] = useState<{ lat: number; lng: number } | null>(null)
-  const [carregando, setCarregando] = useState(true)
-  const [mensagem, setMensagem] = useState<{ texto: string; tipo: 'ok' | 'erro' | 'info' } | null>(null)
-  const [salvandoParada, setSalvandoParada] = useState<string | null>(null)
-  const [paradaExpandida, setParadaExpandida] = useState<string | null>(null)
+  const [coords, setCoords]   = useState<{ lat: number; lng: number } | null>(null)
+  const ultimoUpsertRef       = useRef<number>(0)
+  const watchIdRef            = useRef<number | null>(null)
+  const [manutencaoAberta, setManutencaoAberta] = useState(false)
+  const [formMan, setFormMan] = useState({ tipo: 'outro', descricao: '', urgencia: 'normal' })
+  const [enviandoMan, setEnviandoMan] = useState(false)
+  const [msgMan, setMsgMan]   = useState('')
 
-  const watchIdRef = useRef<number | null>(null)
-  const ultimoUpsertRef = useRef<number>(0)
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null))
+  }, [supabase])
 
-  const carregarDados = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
-
-    const { data: perfil } = await supabase
-      .from('profiles').select('id, nome').eq('id', user.id).single()
-    if (!perfil) { setCarregando(false); return }
-    setNomeMotorista(perfil.nome)
-    setMotoristaId(perfil.id)
-
-    const hoje = new Date().toISOString().split('T')[0]
-    const { data: v } = await supabase
+  const carregarViagem = useCallback(async () => {
+    if (!userId) return
+    setLoading(true)
+    const hoje = new Date().toISOString().slice(0, 10)
+    const { data: vg } = await supabase
       .from('viagens')
-      .select(`
-        id, status,
-        veiculos!veiculo_id(modelo, capacidade),
-        viagem_paradas(
-          id, ordem, status, hora_embarque, hora_chegada,
-          paciente:pacientes(nome, municipio, endereco, lat, lng),
-          hospital:hospitais(nome, municipio, lat, lng)
-        )
-      `)
-      .eq('motorista_id', user.id)
+      .select('*, veiculo:veiculos(placa,modelo)')
+      .eq('motorista_id', userId)
       .eq('data', hoje)
-      .in('status', ['pendente', 'em_andamento'])
-      .order('created_at', { ascending: false })
+      .in('status', ['agendada', 'em_andamento'])
+      .order('created_at')
       .limit(1)
       .single()
 
-    if (v) {
-      const veiculo = v.veiculos as any
-      const paradas: Parada[] = ((v.viagem_paradas as any[]) ?? [])
-        .sort((a, b) => a.ordem - b.ordem)
-        .map((p: any) => ({
-          id: p.id,
-          ordem: p.ordem,
-          status: p.status as StatusParada,
-          hora_embarque: p.hora_embarque,
-          hora_chegada: p.hora_chegada,
-          paciente: p.paciente ?? null,
-          hospital: p.hospital ?? null,
-        }))
-      setViagem({
-        id: v.id,
-        status: v.status as any,
-        veiculoModelo: veiculo?.modelo ?? 'Veículo',
-        veiculoCapacidade: veiculo?.capacidade ?? 4,
-        paradas,
-      })
+    if (vg) {
+      const { data: ps } = await supabase
+        .from('viagem_paradas')
+        .select('*, paciente:pacientes(nome,telefone), hospital:hospitais(nome,lat,lng,endereco)')
+        .eq('viagem_id', vg.id)
+        .order('ordem')
+      setViagem({ ...vg, veiculo: (vg as any).veiculo, paradas: ps || [] })
+    } else {
+      setViagem(null)
     }
-    setCarregando(false)
-  }, [supabase, router])
+    setLoading(false)
+  }, [userId, supabase])
+
+  useEffect(() => { carregarViagem() }, [carregarViagem])
 
   useEffect(() => {
-    carregarDados()
-    return () => pararGPS()
-  }, [carregarDados])
+    if (!viagem) return
+    const canal = supabase.channel('motorista-paradas')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'viagem_paradas', filter: `viagem_id=eq.${viagem.id}` },
+        () => carregarViagem())
+      .subscribe()
+    return () => { supabase.removeChannel(canal) }
+  }, [viagem?.id, supabase, carregarViagem])
 
-  function iniciarGPS(id: string) {
-    if (!navigator.geolocation) {
-      setMensagem({ texto: 'GPS não disponível.', tipo: 'erro' })
-      return
-    }
+  function iniciarGPS() {
+    if (!navigator.geolocation || !userId) return
+    setGpsAtivo(true)
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords
-        setCoordenadas({ lat, lng })
-        setGpsAtivo(true)
+        const lat = pos.coords.latitude
+        const lng = pos.coords.longitude
+        setCoords({ lat, lng })
         const agora = Date.now()
         if (agora - ultimoUpsertRef.current < 5000) return
         ultimoUpsertRef.current = agora
-        await supabase.from('motorista_localizacao').upsert({
-          motorista_id: id, lat, lng,
-          atualizado_em: new Date().toISOString(),
-        })
+        await supabase.from('motorista_localizacao').upsert(
+          { motorista_id: userId, lat, lng, atualizado_em: new Date().toISOString() },
+          { onConflict: 'motorista_id' }
+        )
       },
-      () => { setGpsAtivo(false); setMensagem({ texto: 'Erro no GPS. Verifique as permissões.', tipo: 'erro' }) },
+      null,
       { enableHighAccuracy: true, maximumAge: 5000 }
     )
   }
 
   function pararGPS() {
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current)
-      watchIdRef.current = null
-    }
+    if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current)
     setGpsAtivo(false)
+    setCoords(null)
   }
 
-  function abrirGoogleMaps(lat?: number, lng?: number, nome?: string) {
-    if (!lat || !lng) return
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(nome ?? '')}&travelmode=driving`
-    window.open(url, '_blank')
+  async function atualizarStatus(paradaId: string, novoStatus: string) {
+    const updates: Record<string, any> = { status: novoStatus }
+    if (novoStatus === 'embarcado') updates.hora_embarque = new Date().toISOString()
+    if (novoStatus === 'concluido' || novoStatus === 'desembarcou') updates.hora_chegada = new Date().toISOString()
+    await supabase.from('viagem_paradas').update(updates).eq('id', paradaId)
+    setParadaAberta(null)
+    carregarViagem()
   }
 
-  function mostrarMsg(texto: string, tipo: 'ok' | 'erro' | 'info' = 'ok') {
-    setMensagem({ texto, tipo })
-    setTimeout(() => setMensagem(null), 3000)
+  async function enviarManutencao() {
+    if (!userId || !viagem || !formMan.descricao.trim() || enviandoMan) return
+    setEnviandoMan(true)
+    const { error } = await supabase.from('manutencao_veicular').insert({
+      veiculo_id: (viagem as any).veiculo_id,
+      motorista_id: userId,
+      tipo: formMan.tipo,
+      descricao: formMan.descricao.trim(),
+      urgencia: formMan.urgencia,
+    })
+    setEnviandoMan(false)
+    if (error) { setMsgMan('Erro ao enviar: ' + error.message); return }
+    setMsgMan('✅ Problema reportado ao gestor!')
+    setFormMan({ tipo: 'outro', descricao: '', urgencia: 'normal' })
+    setTimeout(() => { setMsgMan(''); setManutencaoAberta(false) }, 2500)
   }
 
-  async function atualizarParada(paradaId: string, status: StatusParada, extra?: { hora_embarque?: string; hora_chegada?: string }) {
-    setSalvandoParada(paradaId)
-    const { error } = await supabase
-      .from('viagem_paradas')
-      .update({ status, ...extra })
-      .eq('id', paradaId)
-    if (error) {
-      mostrarMsg('Erro ao atualizar status.', 'erro')
-    } else {
-      setViagem(v => v ? {
-        ...v,
-        paradas: v.paradas.map(p => p.id === paradaId ? { ...p, status, ...extra } : p)
-      } : v)
-    }
-    setSalvandoParada(null)
-  }
+  const paradas = viagem?.paradas || []
+  const entregues  = paradas.filter(p => p.status === 'concluido' || p.status === 'desembarcou').length
+  const embarcados = paradas.filter(p => p.status === 'embarcado').length
+  const pendentes  = paradas.filter(p => p.status === 'pendente').length
+  const pctGreen   = paradas.length ? Math.round((entregues / paradas.length) * 100) : 0
+  const pctBlue    = paradas.length ? Math.round((embarcados / paradas.length) * 100) : 0
 
-  async function handleIniciarRota() {
-    if (!viagem) return
-    const { error } = await supabase.from('viagens').update({ status: 'em_andamento' }).eq('id', viagem.id)
-    if (error) { mostrarMsg('Erro ao iniciar rota.', 'erro'); return }
-    setViagem(v => v ? { ...v, status: 'em_andamento' } : v)
-    iniciarGPS(motoristaId)
-    mostrarMsg('Rota iniciada! GPS ativado.', 'ok')
-  }
+  if (loading) return <div className="flex items-center justify-center min-h-screen text-gray-400">Carregando…</div>
 
-  async function handleFinalizar() {
-    if (!viagem) return
-    const pendentes = viagem.paradas.filter(p => p.status === 'pendente' || p.status === 'embarcado')
-    if (pendentes.length > 0) {
-      if (!window.confirm(`Ainda há ${pendentes.length} parada(s) pendente(s). Finalizar mesmo assim?`)) return
-    } else {
-      if (!window.confirm('Confirmar finalização da rota?')) return
-    }
-    await supabase.from('viagens').update({ status: 'concluida' }).eq('id', viagem.id)
-    pararGPS()
-    setViagem(v => v ? { ...v, status: 'concluida' } : v)
-    mostrarMsg('Rota finalizada! Bom trabalho! 🎉', 'ok')
-  }
-
-  const emAndamento = viagem?.status === 'em_andamento'
-  const concluida = viagem?.status === 'concluida'
-  const embarcados = viagem?.paradas.filter(p => p.status === 'embarcado').length ?? 0
-  const entregues = viagem?.paradas.filter(p => ['concluido','desembarcou'].includes(p.status)).length ?? 0
-  const totalAtivos = viagem?.paradas.filter(p => !['ausente','cancelou'].includes(p.status)).length ?? 0
-
-  function formatarHora(iso?: string | null) {
-    if (!iso) return null
-    return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-  }
+  if (!viagem) return (
+    <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-gray-50">
+      <div className="text-6xl mb-4">🚐</div>
+      <h2 className="text-xl font-bold text-gray-700 mb-2">Nenhuma rota hoje</h2>
+      <p className="text-gray-500 text-center text-sm">Aguarde o gestor agendar uma viagem para você.</p>
+      <button onClick={carregarViagem} className="mt-6 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-medium hover:bg-blue-700">
+        🔄 Atualizar
+      </button>
+    </div>
+  )
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white flex flex-col max-w-md mx-auto">
-
+    <div className="min-h-screen bg-gray-50 pb-8">
       {/* Header */}
-      <header className="bg-gray-900 px-5 py-4 flex items-center justify-between border-b border-gray-800 sticky top-0 z-10">
-        <div>
-          <h1 className="font-extrabold text-xl">Smart<span className="text-blue-400">TFD</span></h1>
-          <p className="text-gray-400 text-xs">{nomeMotorista || 'Motorista'}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`w-2.5 h-2.5 rounded-full ${gpsAtivo ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
-          <span className={`text-xs font-medium ${gpsAtivo ? 'text-green-400' : 'text-gray-500'}`}>
-            {gpsAtivo ? 'GPS ativo' : 'GPS off'}
-          </span>
-        </div>
-      </header>
-
-      <main className="flex-1 flex flex-col gap-4 p-4 pb-6">
-        {carregando ? (
-          <div className="flex-1 flex items-center justify-center">
-            <p className="text-gray-500 animate-pulse text-lg">Carregando…</p>
+      <div className="bg-blue-700 text-white px-4 pt-6 pb-4">
+        <div className="flex items-center justify-between mb-1">
+          <div>
+            <div className="text-xs text-blue-300 uppercase tracking-wide">Sua rota de hoje</div>
+            <div className="font-bold text-lg">{viagem.veiculo?.placa} · {viagem.veiculo?.modelo}</div>
           </div>
-        ) : !viagem ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center py-16">
-            <span className="text-6xl">📋</span>
-            <p className="text-gray-300 font-bold text-xl">Nenhuma rota hoje</p>
-            <p className="text-gray-500 text-sm">O gestor ainda não criou sua rota.</p>
+          <button
+            onClick={gpsAtivo ? pararGPS : iniciarGPS}
+            className={`px-3 py-2 rounded-xl text-sm font-medium transition ${gpsAtivo ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}>
+            {gpsAtivo ? '⏸ GPS' : '▶ GPS'}
+          </button>
+        </div>
+        {gpsAtivo && coords && (
+          <div className="text-xs text-blue-300 mt-1">📍 {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</div>
+        )}
+
+        {/* Barra de progresso */}
+        <div className="mt-3">
+          <div className="flex justify-between text-xs text-blue-200 mb-1">
+            <span>{entregues} entregue{entregues !== 1 ? 's' : ''}</span>
+            <span>{paradas.length} total</span>
           </div>
-        ) : (
-          <>
-            {/* Card da viagem */}
-            <div className="bg-gray-800 rounded-2xl p-4 border border-gray-700">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-gray-400 text-xs uppercase tracking-widest">Veículo</p>
-                  <p className="font-bold text-lg">🚐 {viagem.veiculoModelo}</p>
-                </div>
-                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                  emAndamento ? 'bg-blue-900 text-blue-300' :
-                  concluida ? 'bg-green-900 text-green-300' :
-                  'bg-gray-700 text-gray-300'
-                }`}>
-                  {emAndamento ? 'Em andamento' : concluida ? 'Concluída' : 'Pendente'}
-                </span>
-              </div>
+          <div className="w-full bg-blue-900 rounded-full h-2 flex overflow-hidden">
+            <div className="bg-green-400 h-2 transition-all" style={{ width: `${pctGreen}%` }} />
+            <div className="bg-blue-300 h-2 transition-all" style={{ width: `${pctBlue}%` }} />
+          </div>
+        </div>
+      </div>
 
-              {/* Barra de progresso */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs text-gray-400">
-                  <span>{entregues} entregues · {embarcados} a bordo · {totalAtivos - entregues - embarcados} pendentes</span>
-                  <span>{viagem.paradas.length} paradas</span>
+      {/* Observações */}
+      {viagem.observacoes && (
+        <div className="mx-4 mt-3 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-2.5 text-sm text-yellow-800">
+          📝 {viagem.observacoes}
+        </div>
+      )}
+
+      {/* Lista de paradas */}
+      <div className="px-4 mt-4 space-y-3">
+        {paradas.map((p, i) => (
+          <div key={p.id} className={`bg-white rounded-2xl shadow-sm border overflow-hidden ${STATUS_COR[p.status]}`}>
+            <button className="w-full text-left p-4" onClick={() => setParadaAberta(paradaAberta === p.id ? null : p.id)}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-400">#{i + 1}</span>
+                    <span className="font-semibold text-gray-800">{p.paciente?.nome || '—'}</span>
+                  </div>
+                  <div className="text-sm text-gray-600 mt-0.5">🏥 {p.hospital?.nome || '—'}</div>
+                  {p.hospital?.endereco && (
+                    <div className="text-xs text-gray-400 mt-0.5">{p.hospital.endereco}</div>
+                  )}
                 </div>
-                <div className="h-2 bg-gray-700 rounded-full overflow-hidden flex">
-                  <div className="bg-green-500 transition-all duration-500" style={{ width: `${(entregues / Math.max(totalAtivos, 1)) * 100}%` }} />
-                  <div className="bg-blue-500 transition-all duration-500" style={{ width: `${(embarcados / Math.max(totalAtivos, 1)) * 100}%` }} />
-                </div>
-                <div className="flex gap-3 text-xs text-gray-500">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Entregue</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />A bordo</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-600" />Pendente</span>
+                <div className="flex flex-col items-end gap-1">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${STATUS_COR[p.status]}`}>
+                    {STATUS_LABEL[p.status]}
+                  </span>
+                  <span className="text-gray-400 text-sm">{paradaAberta === p.id ? '▲' : '▼'}</span>
                 </div>
               </div>
+            </button>
 
-              {coordenadas && (
-                <p className="text-gray-600 text-xs mt-2">📍 {coordenadas.lat.toFixed(5)}, {coordenadas.lng.toFixed(5)}</p>
-              )}
+            {paradaAberta === p.id && (
+              <div className="border-t px-4 pb-4 pt-3 space-y-2">
+                {/* Google Maps */}
+                {p.hospital?.lat && p.hospital?.lng && (
+                  <a href={`https://www.google.com/maps/dir/?api=1&destination=${p.hospital.lat},${p.hospital.lng}&travelmode=driving`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 w-full bg-blue-600 text-white py-3 rounded-xl font-medium text-sm hover:bg-blue-700">
+                    🗺️ Abrir no Google Maps
+                  </a>
+                )}
+
+                {/* Botões de status */}
+                <div className="grid grid-cols-2 gap-2">
+                  {p.status === 'pendente' && <>
+                    <button onClick={() => atualizarStatus(p.id, 'embarcado')}
+                      className="col-span-2 bg-blue-600 text-white py-3 rounded-xl font-medium text-sm hover:bg-blue-700">
+                      ✅ Confirmar embarque
+                    </button>
+                    <button onClick={() => atualizarStatus(p.id, 'ausente')}
+                      className="bg-gray-200 text-gray-700 py-2.5 rounded-xl text-sm hover:bg-gray-300">
+                      ⚠️ Ausente
+                    </button>
+                    <button onClick={() => atualizarStatus(p.id, 'cancelou')}
+                      className="bg-red-100 text-red-700 py-2.5 rounded-xl text-sm hover:bg-red-200">
+                      ✕ Cancelou
+                    </button>
+                  </>}
+                  {p.status === 'embarcado' && <>
+                    <button onClick={() => atualizarStatus(p.id, 'desembarcou')}
+                      className="col-span-2 bg-purple-600 text-white py-3 rounded-xl font-medium text-sm hover:bg-purple-700">
+                      🏥 Desembarcou no hospital
+                    </button>
+                    <button onClick={() => atualizarStatus(p.id, 'concluido')}
+                      className="col-span-2 bg-green-600 text-white py-2.5 rounded-xl text-sm hover:bg-green-700">
+                      ✓ Entregue (concluído)
+                    </button>
+                  </>}
+                  {p.status === 'desembarcou' && (
+                    <button onClick={() => atualizarStatus(p.id, 'concluido')}
+                      className="col-span-2 bg-green-600 text-white py-3 rounded-xl font-medium text-sm hover:bg-green-700">
+                      ✓ Marcar como concluído
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Botão Reportar Problema */}
+      {viagem && (
+        <div className="px-4 mt-6">
+          <button onClick={() => setManutencaoAberta(true)}
+            className="w-full border-2 border-orange-300 bg-orange-50 text-orange-700 py-3 rounded-2xl font-medium text-sm hover:bg-orange-100 flex items-center justify-center gap-2">
+            🔧 Reportar problema no veículo
+          </button>
+        </div>
+      )}
+
+      {/* Modal Manutenção */}
+      {manutencaoAberta && (
+        <div className="fixed inset-0 bg-black/40 flex items-end z-50 p-4">
+          <div className="bg-white w-full rounded-2xl shadow-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-gray-800">🔧 Reportar Problema</h3>
+              <button onClick={() => setManutencaoAberta(false)} className="text-gray-400 text-xl">✕</button>
             </div>
 
-            {/* Feedback */}
-            {mensagem && (
-              <div className={`rounded-xl px-4 py-3 text-sm text-center font-medium border ${
-                mensagem.tipo === 'ok'   ? 'bg-green-900 border-green-700 text-green-300' :
-                mensagem.tipo === 'erro' ? 'bg-red-900 border-red-700 text-red-300' :
-                'bg-yellow-900 border-yellow-700 text-yellow-300'
-              }`}>
-                {mensagem.texto}
-              </div>
-            )}
-
-            {/* Rota concluída */}
-            {concluida && (
-              <div className="bg-green-900 border border-green-700 rounded-2xl p-6 text-center">
-                <p className="text-4xl mb-2">🎉</p>
-                <p className="text-green-300 font-bold text-xl">Rota finalizada!</p>
-                <p className="text-green-500 text-sm mt-1">Bom trabalho hoje!</p>
-              </div>
-            )}
-
-            {/* Lista de paradas */}
-            {viagem.paradas.length > 0 && (
-              <div className="flex flex-col gap-3">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Paradas da rota</p>
-
-                {viagem.paradas.map((parada, i) => {
-                  const isSalvando = salvandoParada === parada.id
-                  const isExpandida = paradaExpandida === parada.id
-                  const isFinalizado = ['concluido','desembarcou','ausente','cancelou'].includes(parada.status)
-                  const isEmbarcado = parada.status === 'embarcado'
-                  const isPendente = parada.status === 'pendente'
-
-                  return (
-                    <div key={parada.id} className={`rounded-2xl border overflow-hidden transition-all ${
-                      parada.status === 'cancelou' ? 'border-red-900 bg-red-950 opacity-70' :
-                      parada.status === 'ausente'  ? 'border-yellow-900 bg-yellow-950 opacity-80' :
-                      isFinalizado                  ? 'border-green-900 bg-green-950 opacity-75' :
-                      isEmbarcado                   ? 'border-blue-800 bg-blue-950' :
-                      'border-gray-700 bg-gray-800'
-                    }`}>
-                      {/* Linha principal — clicável para expandir */}
-                      <button
-                        className="w-full text-left p-4"
-                        onClick={() => setParadaExpandida(isExpandida ? null : parada.id)}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${STATUS_COR[parada.status]}`}>
-                            {parada.status === 'concluido' || parada.status === 'desembarcou' ? '✓' :
-                             parada.status === 'ausente'  ? '!' :
-                             parada.status === 'cancelou' ? '✕' :
-                             isEmbarcado ? '→' : i + 1}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-bold text-base leading-tight truncate">
-                              {parada.paciente?.nome ?? 'Sem nome'}
-                            </p>
-                            <p className="text-gray-400 text-xs mt-0.5 truncate">
-                              📍 {parada.paciente?.endereco ?? parada.paciente?.municipio ?? '—'}
-                            </p>
-                            <p className="text-xs mt-0.5 truncate">
-                              <span className="text-gray-500">🏥 </span>
-                              <span className="text-gray-300">{parada.hospital?.nome ?? '—'}</span>
-                            </p>
-                            {(parada.hora_embarque || parada.hora_chegada) && (
-                              <div className="flex gap-3 mt-1 text-xs text-gray-500">
-                                {parada.hora_embarque && <span>🕐 {formatarHora(parada.hora_embarque)}</span>}
-                                {parada.hora_chegada  && <span>🏁 {formatarHora(parada.hora_chegada)}</span>}
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end gap-1">
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${STATUS_COR[parada.status]}`}>
-                              {STATUS_LABEL[parada.status]}
-                            </span>
-                            <span className="text-gray-600 text-xs">{isExpandida ? '▲' : '▼'}</span>
-                          </div>
-                        </div>
+            {msgMan ? (
+              <div className="bg-green-50 text-green-700 px-4 py-3 rounded-xl text-sm text-center font-medium">{msgMan}</div>
+            ) : (
+              <>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Tipo do problema</label>
+                  <select value={formMan.tipo} onChange={e => setFormMan(f => ({ ...f, tipo: e.target.value }))}
+                    className="w-full border rounded-xl px-3 py-2.5 text-sm">
+                    <option value="pneu">🛞 Pneu</option>
+                    <option value="motor">⚙️ Motor</option>
+                    <option value="freio">🛑 Freio</option>
+                    <option value="ar-condicionado">❄️ Ar-condicionado</option>
+                    <option value="carroceria">🚐 Carroceria</option>
+                    <option value="outro">📋 Outro</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Urgência</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {['baixa', 'normal', 'alta', 'critica'].map(u => (
+                      <button key={u} onClick={() => setFormMan(f => ({ ...f, urgencia: u }))}
+                        className={`py-2 rounded-xl text-xs font-medium border transition
+                          ${formMan.urgencia === u
+                            ? u === 'critica' ? 'bg-red-600 text-white border-red-600'
+                            : u === 'alta' ? 'bg-orange-500 text-white border-orange-500'
+                            : u === 'normal' ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-gray-600 text-white border-gray-600'
+                            : 'bg-white text-gray-600 border-gray-300'}`}>
+                        {u.charAt(0).toUpperCase() + u.slice(1)}
                       </button>
-
-                      {/* Botões — expandido */}
-                      {isExpandida && (
-                        <div className="px-4 pb-4 border-t border-gray-700 pt-3 space-y-2">
-
-                          {/* Google Maps — sempre disponível */}
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              onClick={() => abrirGoogleMaps(parada.paciente?.lat, parada.paciente?.lng, parada.paciente?.nome ?? '')}
-                              className="bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors"
-                            >
-                              🗺️ Ver endereço
-                            </button>
-                            <button
-                              onClick={() => abrirGoogleMaps(parada.hospital?.lat, parada.hospital?.lng, parada.hospital?.nome ?? '')}
-                              className="bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors"
-                            >
-                              🏥 Ver hospital
-                            </button>
-                          </div>
-
-                          {/* Ações de status — só quando em andamento e não finalizado */}
-                          {emAndamento && !isFinalizado && (
-                            <>
-                              {isPendente && (
-                                <div className="grid grid-cols-3 gap-2">
-                                  <button
-                                    onClick={() => atualizarParada(parada.id, 'embarcado', { hora_embarque: new Date().toISOString() })}
-                                    disabled={isSalvando}
-                                    className="col-span-3 bg-blue-700 hover:bg-blue-600 active:scale-95 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-sm transition-all"
-                                  >
-                                    {isSalvando ? '…' : '✅ Confirmar embarque'}
-                                  </button>
-                                  <button
-                                    onClick={() => atualizarParada(parada.id, 'ausente')}
-                                    disabled={isSalvando}
-                                    className="bg-yellow-800 hover:bg-yellow-700 active:scale-95 disabled:opacity-50 text-yellow-200 font-semibold py-2.5 rounded-xl text-xs transition-all"
-                                  >
-                                    ⚠️ Ausente
-                                  </button>
-                                  <button
-                                    onClick={() => atualizarParada(parada.id, 'cancelou')}
-                                    disabled={isSalvando}
-                                    className="bg-red-900 hover:bg-red-800 active:scale-95 disabled:opacity-50 text-red-300 font-semibold py-2.5 rounded-xl text-xs transition-all"
-                                  >
-                                    ✕ Cancelou
-                                  </button>
-                                  <button
-                                    onClick={() => atualizarParada(parada.id, 'pendente')}
-                                    disabled={isSalvando}
-                                    className="bg-gray-700 hover:bg-gray-600 active:scale-95 disabled:opacity-50 text-gray-300 font-semibold py-2.5 rounded-xl text-xs transition-all"
-                                  >
-                                    ↩ Voltar
-                                  </button>
-                                </div>
-                              )}
-                              {isEmbarcado && (
-                                <div className="grid grid-cols-2 gap-2">
-                                  <button
-                                    onClick={() => atualizarParada(parada.id, 'desembarcou', { hora_chegada: new Date().toISOString() })}
-                                    disabled={isSalvando}
-                                    className="bg-green-700 hover:bg-green-600 active:scale-95 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-sm transition-all"
-                                  >
-                                    {isSalvando ? '…' : '🏥 Desembarcou'}
-                                  </button>
-                                  <button
-                                    onClick={() => atualizarParada(parada.id, 'concluido', { hora_chegada: new Date().toISOString() })}
-                                    disabled={isSalvando}
-                                    className="bg-teal-800 hover:bg-teal-700 active:scale-95 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-sm transition-all"
-                                  >
-                                    {isSalvando ? '…' : '✓ Entregue'}
-                                  </button>
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Descrição *</label>
+                  <textarea value={formMan.descricao} onChange={e => setFormMan(f => ({ ...f, descricao: e.target.value }))}
+                    rows={3} placeholder="Descreva o problema observado…"
+                    className="w-full border rounded-xl px-3 py-2.5 text-sm resize-none" />
+                </div>
+                <button onClick={enviarManutencao} disabled={!formMan.descricao.trim() || enviandoMan}
+                  className="w-full bg-orange-500 text-white py-3 rounded-xl font-semibold hover:bg-orange-600 disabled:opacity-50">
+                  {enviandoMan ? 'Enviando…' : '📤 Enviar Alerta'}
+                </button>
+              </>
             )}
-
-            {/* Botão principal */}
-            {!concluida && (
-              <button
-                onClick={emAndamento ? handleFinalizar : handleIniciarRota}
-                className={`w-full font-extrabold py-5 rounded-2xl text-xl tracking-wide active:scale-95 transition-all text-white mt-2 ${
-                  emAndamento ? 'bg-orange-600 hover:bg-orange-500' : 'bg-blue-600 hover:bg-blue-500'
-                }`}
-              >
-                {emAndamento ? '🏁 Finalizar Rota' : '🚀 Iniciar Rota'}
-              </button>
-            )}
-          </>
-        )}
-      </main>
-
-      <footer className="px-5 py-4 border-t border-gray-800">
-        <button
-          onClick={async () => { pararGPS(); await supabase.auth.signOut(); router.push('/login') }}
-          className="w-full text-gray-600 hover:text-gray-400 text-sm py-2 transition-colors"
-        >
-          Sair da conta
-        </button>
-      </footer>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

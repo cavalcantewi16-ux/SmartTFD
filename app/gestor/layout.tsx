@@ -1,15 +1,15 @@
 import Link from 'next/link'
 
 const navItems = [
-  { href: '/gestor',                  label: '🗺️ Painel'       },
-  { href: '/gestor/redistribuicao',   label: '🔀 Rotas'        },
-  { href: '/gestor/pacientes',        label: '👤 Pacientes'    },
-  { href: '/gestor/hospitais',        label: '🏥 Hospitais'    },
-  { href: '/gestor/motoristas',       label: '🧑‍✈️ Motoristas'  },
-  { href: '/gestor/veiculos',         label: '🚐 Veículos'     },
-  { href: '/gestor/viagens',          label: '📅 Viagens'      },
-  { href: '/gestor/historico',        label: '📋 Histórico'    },
-  { href: '/gestor/configuracoes',    label: '⚙️ Config'       },
+  { href: '/gestor',              label: '🗺️ Rotas Ativas'  },
+  { href: '/gestor/pacientes',    label: '👤 Pacientes'     },
+  { href: '/gestor/motoristas',   label: '🧑‍✈️ Motoristas'   },
+  { href: '/gestor/veiculos',     label: '🚐 Veículos'      },
+  { href: '/gestor/hospitais',    label: '🏥 Hospitais'     },
+  { href: '/gestor/viagens',      label: '📅 Agendamento'   },
+  { href: '/gestor/redistribuicao', label: '🔀 Redistribuir' },
+  { href: '/gestor/historico',    label: '📋 Histórico'     },
+  { href: '/gestor/configuracoes', label: '⚙️ Config'       },
 ]
 
 export default function GestorLayout({ children }: { children: React.ReactNode }) {
