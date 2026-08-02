@@ -88,17 +88,26 @@ export default function MotoristasPage() {
     if (novaSenha.length < 6) { setErroSenha('Mínimo 6 caracteres'); return }
     if (novaSenha !== confirmSenha) { setErroSenha('As senhas não coincidem'); return }
     setSalvandoSenha(true); setErroSenha(''); setOkSenha('')
-    const res = await fetch('/api/admin/reset-senha', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ motorista_id: senhaMotoristaId, nova_senha: novaSenha }),
-    })
-    const data = await res.json()
-    setSalvandoSenha(false)
-    if (!res.ok) { setErroSenha(data.error || 'Erro desconhecido'); return }
-    setOkSenha('✅ Senha alterada com sucesso!')
-    setNovaSenha(''); setConfirmSenha('')
-    setTimeout(() => { setModalSenha(false); setOkSenha('') }, 1800)
+    try {
+      const res = await fetch('/api/admin/reset-senha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motorista_id: senhaMotoristaId, nova_senha: novaSenha }),
+      })
+      let data: any = {}
+      try { data = await res.json() } catch { /* resposta não-JSON */ }
+      if (!res.ok) {
+        setErroSenha(data.error || `Erro ${res.status}`)
+        return
+      }
+      setOkSenha('✅ Senha alterada com sucesso!')
+      setNovaSenha(''); setConfirmSenha('')
+      setTimeout(() => { setModalSenha(false); setOkSenha('') }, 1800)
+    } catch (e: any) {
+      setErroSenha('Falha de conexão: ' + (e.message || 'erro desconhecido'))
+    } finally {
+      setSalvandoSenha(false)
+    }
   }
 
   function abrirModalSenha(id: string, email: string) {
