@@ -14,7 +14,7 @@ import PlanTimeline from '@/components/PlanTimeline'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface Hospital  { id: string; nome: string; cidade?: string }
-interface Paciente  { id: string; nome: string; endereco?: string; bairro?: string; lat?: number; lng?: number }
+interface Paciente  { id: string; nome: string; endereco?: string; bairro?: string; lat?: number; lng?: number; hospital_principal_id?: string; hospital_principal_nome?: string; hospital_principal_cidade?: string }
 interface Passenger {
   id: string; paciente: Paciente; ordem: number; est_pickup_at?: string
 }
@@ -209,6 +209,7 @@ export default function EditarPlano() {
   const [buscaPac,     setBuscaPac]     = useState('')
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [loadingPacs,  setLoadingPacs]  = useState(false)
+  const [jaEmViagem,   setJaEmViagem]   = useState<Record<string, string>>({})
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -249,11 +250,42 @@ export default function EditarPlano() {
   }, [supabase])
 
   useEffect(() => {
-    if (!formHospital) { setPacientes([]); return }
+    if (!formHospital || !plano) { setPacientes([]); setJaEmViagem({}); return }
     setLoadingPacs(true)
-    supabase.from('pacientes').select('id,nome,endereco,bairro,lat,lng').order('nome')
-      .then(({ data }) => { setPacientes(data || []); setLoadingPacs(false) })
-  }, [supabase, formHospital])
+
+    Promise.all([
+      supabase
+        .from('pacientes')
+        .select('id,nome,endereco,bairro,lat,lng,hospital_principal_id,hospital_principal:hospitais!hospital_principal_id(nome,cidade)')
+        .order('nome'),
+      supabase
+        .from('route_plans')
+        .select('id,route_legs(id,ordem,leg_passengers(paciente_id))')
+        .eq('data', plano.data),
+    ]).then(([pacsRes, plansRes]) => {
+      // Mapear pacientes já agendados hoje
+      const mapa: Record<string, string> = {}
+      ;(plansRes.data || []).forEach((plan: any) => {
+        ;(plan.route_legs || []).forEach((leg: any) => {
+          ;(leg.leg_passengers || []).forEach((lp: any) => {
+            if (!mapa[lp.paciente_id]) {
+              mapa[lp.paciente_id] = `Viagem ${leg.ordem + 1}`
+            }
+          })
+        })
+      })
+      setJaEmViagem(mapa)
+
+      // Enriquecer pacientes com info do hospital principal
+      const pacs: Paciente[] = (pacsRes.data || []).map((p: any) => ({
+        ...p,
+        hospital_principal_nome:   p.hospital_principal?.nome,
+        hospital_principal_cidade: p.hospital_principal?.cidade,
+      }))
+      setPacientes(pacs)
+      setLoadingPacs(false)
+    })
+  }, [supabase, formHospital, plano])
 
   const pacientesFiltrados = pacientes.filter(p =>
     p.nome.toLowerCase().includes(buscaPac.toLowerCase())
@@ -453,33 +485,115 @@ export default function EditarPlano() {
                     <div className="text-center text-gray-400 text-sm py-4">Carregando…</div>
                   ) : pacientesFiltrados.length === 0 ? (
                     <div className="text-center text-gray-400 text-sm py-4">Nenhum paciente encontrado</div>
-                  ) : (
-                    <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-                      {pacientesFiltrados.map(p => {
-                        const jaEsta = jaAdicionados.has(p.id)
-                        const sel    = selecionados.has(p.id)
-                        return (
-                          <label key={p.id}
-                            className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors
-                              ${jaEsta ? 'opacity-40 cursor-not-allowed' : sel ? 'bg-blue-50 border border-blue-200' : 'border border-transparent hover:bg-gray-50'}`}>
-                            <input type="checkbox" checked={sel} disabled={jaEsta}
-                              onChange={() => !jaEsta && togglePaciente(p.id)}
-                              className="accent-blue-600" />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium text-gray-800 truncate">{p.nome}</div>
-                              {(p.endereco || p.bairro) && (
-                                <div className="text-xs text-gray-400 truncate">
-                                  {[p.endereco, p.bairro].filter(Boolean).join(', ')}
-                                </div>
+                  ) : (() => {
+                    const hospSel = hospitais.find(h => h.id === formHospital)
+                    const cidadeSel = (hospSel as any)?.cidade
+
+                    // Agrupar pacientes
+                    const g1 = pacientesFiltrados.filter(p => p.hospital_principal_id === formHospital)
+                    const g2 = pacientesFiltrados.filter(p =>
+                      p.hospital_principal_id !== formHospital &&
+                      cidadeSel && p.hospital_principal_cidade === cidadeSel
+                    )
+                    const g3 = pacientesFiltrados.filter(p =>
+                      p.hospital_principal_id !== formHospital &&
+                      !(cidadeSel && p.hospital_principal_cidade === cidadeSel)
+                    )
+
+                    function PacCard({ p, grupo }: { p: Paciente; grupo: 1 | 2 | 3 }) {
+                      const jaEsta   = jaAdicionados.has(p.id)
+                      const sel      = selecionados.has(p.id)
+                      const avisoViagem = jaEmViagem[p.id]
+                      const baseBg =
+                        sel      ? 'bg-blue-50 border-blue-300' :
+                        grupo===1 ? 'bg-green-50 border-green-200' :
+                        grupo===2 ? 'bg-yellow-50 border-yellow-200' :
+                                    'bg-gray-50 border-gray-100'
+                      return (
+                        <label className={`flex items-start gap-2.5 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors
+                          ${jaEsta ? 'opacity-50 cursor-not-allowed' : 'hover:brightness-95'} ${baseBg}`}>
+                          <input type="checkbox" checked={sel} disabled={jaEsta}
+                            onChange={() => !jaEsta && togglePaciente(p.id)}
+                            className="accent-blue-600 mt-0.5 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-gray-800 truncate">{p.nome}</div>
+                            {(p.endereco || p.bairro) && (
+                              <div className="text-xs text-gray-500 truncate">
+                                📍 {[p.endereco, p.bairro].filter(Boolean).join(', ')}
+                              </div>
+                            )}
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {grupo === 1 && (
+                                <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">
+                                  🏥 Hospital principal
+                                </span>
+                              )}
+                              {grupo === 2 && (
+                                <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full font-medium">
+                                  📍 Mesma cidade · {p.hospital_principal_nome || 'outro hospital'}
+                                </span>
+                              )}
+                              {grupo === 3 && p.hospital_principal_nome && (
+                                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">
+                                  {p.hospital_principal_nome}
+                                </span>
+                              )}
+                              {avisoViagem && !jaEsta && (
+                                <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">
+                                  ⚠️ Já em {avisoViagem}
+                                </span>
+                              )}
+                              {!p.lat && (
+                                <span className="text-[10px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full">
+                                  sem GPS
+                                </span>
+                              )}
+                              {jaEsta && (
+                                <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">
+                                  já adicionado
+                                </span>
                               )}
                             </div>
-                            {!p.lat && <span className="text-xs text-orange-400 whitespace-nowrap">sem GPS</span>}
-                            {jaEsta && <span className="text-xs text-gray-400 whitespace-nowrap">adicionado</span>}
-                          </label>
-                        )
-                      })}
-                    </div>
-                  )}
+                          </div>
+                        </label>
+                      )
+                    }
+
+                    return (
+                      <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                        {g1.length > 0 && (
+                          <div>
+                            <div className="text-[10px] font-bold text-green-700 uppercase tracking-widest mb-1.5 px-1">
+                              ✅ Hospital principal ({g1.length})
+                            </div>
+                            <div className="space-y-1.5">
+                              {g1.map(p => <PacCard key={p.id} p={p} grupo={1} />)}
+                            </div>
+                          </div>
+                        )}
+                        {g2.length > 0 && (
+                          <div>
+                            <div className="text-[10px] font-bold text-yellow-700 uppercase tracking-widest mb-1.5 px-1">
+                              📍 Mesma cidade ({g2.length})
+                            </div>
+                            <div className="space-y-1.5">
+                              {g2.map(p => <PacCard key={p.id} p={p} grupo={2} />)}
+                            </div>
+                          </div>
+                        )}
+                        {g3.length > 0 && (
+                          <div>
+                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 px-1">
+                              Outros ({g3.length})
+                            </div>
+                            <div className="space-y-1.5">
+                              {g3.map(p => <PacCard key={p.id} p={p} grupo={3} />)}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
             </div>

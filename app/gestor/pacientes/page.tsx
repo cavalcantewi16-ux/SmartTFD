@@ -10,10 +10,12 @@ interface Paciente {
   created_at: string
 }
 
+interface Hospital { id: string; nome: string; cidade?: string }
+
 const FORM_VAZIO = {
   nome: '', cpf: '', telefone: '',
   endereco: '', bairro: '', cidade: '',
-  observacoes: '',
+  observacoes: '', hospital_principal_id: '',
 }
 
 async function geocodificar(endereco: string, bairro: string, cidade: string) {
@@ -58,6 +60,7 @@ export default function Pacientes() {
   const [geocodando, setGeocodando] = useState(false)
   const [msg, setMsg]             = useState('')
   const [busca, setBusca]         = useState('')
+  const [hospitais, setHospitais]  = useState<Hospital[]>([])
   const [abertos, setAbertos]     = useState<Set<string>>(new Set())
 
   const carregar = useCallback(async () => {
@@ -68,6 +71,10 @@ export default function Pacientes() {
   }, [supabase])
 
   useEffect(() => { carregar() }, [carregar])
+
+  useEffect(() => {
+    supabase.from('hospitais').select('id,nome,cidade').order('nome').then(({ data }) => setHospitais(data || []))
+  }, [supabase])
 
   function set(field: string, val: string) {
     setForm(f => ({ ...f, [field]: val }))
@@ -86,7 +93,8 @@ export default function Pacientes() {
       endereco:    p.endereco    || '',
       bairro:      p.bairro      || '',
       cidade:      p.cidade      || '',
-      observacoes: p.observacoes || '',
+      observacoes:           p.observacoes           || '',
+      hospital_principal_id: (p as any).hospital_principal_id || '',
     })
     setEditId(p.id)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -113,7 +121,8 @@ export default function Pacientes() {
       endereco:    form.endereco.trim() || null,
       bairro:      form.bairro.trim()   || null,
       cidade:      form.cidade.trim()   || null,
-      observacoes: form.observacoes.trim() || null,
+      observacoes:           form.observacoes.trim()           || null,
+      hospital_principal_id: form.hospital_principal_id || null,
     }
     if (lat !== undefined) { payload.lat = lat; payload.lng = lng }
 
@@ -228,6 +237,17 @@ export default function Pacientes() {
         {/* Observações */}
         <div>
           <label className="text-xs text-gray-500 mb-1 block">Observações</label>
+          <div className="md:col-span-2">
+            <label className="text-xs text-gray-500 mb-1 block">Hospital Principal</label>
+            <select value={form.hospital_principal_id}
+              onChange={e => set('hospital_principal_id', e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+              <option value="">Nenhum / Não definido</option>
+              {hospitais.map(h => (
+                <option key={h.id} value={h.id}>{h.nome}{h.cidade ? ` — ${h.cidade}` : ''}</option>
+              ))}
+            </select>
+          </div>
           <textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)}
             rows={2} placeholder="Condições especiais, necessidades de acessibilidade, etc."
             className="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300" />
