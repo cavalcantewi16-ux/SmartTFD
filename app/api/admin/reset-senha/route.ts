@@ -5,22 +5,20 @@ import { cookies } from 'next/headers'
 
 export async function POST(req: NextRequest) {
   try {
-    // Verificar sessão do gestor
-    const supabase = createRouteHandlerClient({ cookies })
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const cookieStore = cookies()
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
 
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
     }
 
     const { data: perfil } = await supabase
       .from('profiles').select('role').eq('id', user.id).single()
-
     if ((perfil as any)?.role !== 'gestor') {
-      return NextResponse.json({ error: 'Acesso negado: apenas gestores podem redefinir senhas' }, { status: 403 })
+      return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
     }
 
-    // Validar body
     let body: any
     try { body = await req.json() } catch {
       return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
@@ -34,14 +32,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'A senha deve ter pelo menos 6 caracteres' }, { status: 400 })
     }
 
-    // Verificar chave admin
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     if (!serviceKey || !supabaseUrl) {
-      return NextResponse.json({ error: 'Configuração do servidor incompleta (SUPABASE_SERVICE_ROLE_KEY)' }, { status: 500 })
+      return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY não configurada' }, { status: 500 })
     }
 
-    // Alterar senha via admin
     const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
@@ -50,10 +46,7 @@ export async function POST(req: NextRequest) {
       password: nova_senha,
     })
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true })
   } catch (e: any) {
     return NextResponse.json({ error: e.message || 'Erro interno' }, { status: 500 })
