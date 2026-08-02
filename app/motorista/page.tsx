@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { useRouter } from 'next/navigation'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Paciente  { id: string; nome: string; endereco?: string; bairro?: string; lat?: number; lng?: number }
@@ -65,6 +66,7 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function MotoristaPage() {
   const supabase = createClientComponentClient()
+  const router   = useRouter()
   const [user,           setUser]           = useState<any>(null)
   const [nomePerfil,     setNomePerfil]     = useState('')
   const [plan,           setPlan]           = useState<Plan | null>(null)
@@ -190,6 +192,11 @@ export default function MotoristaPage() {
     alert('✅ Problema reportado ao gestor.')
   }
 
+  async function logout() {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
   // ── Derivações do estado do plano ──────────────────────────────────────────
   const legs          = plan?.legs || []
   const todoConcluido = legs.length > 0 && legs.every(l => l.status === 'concluida')
@@ -216,6 +223,10 @@ export default function MotoristaPage() {
             {gpsAtivo ? '📍 GPS ativo' : '📍 sem GPS'}
           </span>
           {nomePerfil && <span className="text-blue-200">{nomePerfil}</span>}
+          <button onClick={logout}
+            className="text-blue-300 hover:text-white text-xs border border-blue-600 px-2 py-0.5 rounded-md transition-colors">
+            Sair
+          </button>
         </div>
       </div>
     )
