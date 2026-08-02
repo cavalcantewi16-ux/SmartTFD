@@ -4,21 +4,25 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { useParams, useRouter } from 'next/navigation'
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
-  type DragEndEvent
+  type DragEndEvent,
 } from '@dnd-kit/core'
 import {
-  SortableContext, verticalListSortingStrategy,
-  useSortable, arrayMove
+  SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface Hospital  { id: string; nome: string; cidade?: string }
-interface Paciente  { id: string; nome: string; endereco?: string; bairro?: string }
-interface Passenger { id: string; paciente: Paciente; ordem: number }
+interface Paciente  { id: string; nome: string; endereco?: string; bairro?: string; lat?: number; lng?: number }
+interface Passenger {
+  id: string; paciente: Paciente; ordem: number; est_pickup_at?: string
+}
 interface Leg {
   id: string; hospital: Hospital; horario_saida: string; ordem: number
   passengers: Passenger[]
+  est_departure_at?: string; est_hospital_at?: string; est_return_at?: string
+  est_outbound_min?: number; est_return_min?: number; est_distance_km?: number
+  conflict?: string
 }
 interface Plano {
   id: string; data: string; status: string
@@ -26,25 +30,24 @@ interface Plano {
   motorista: { nome: string }
 }
 
+const TZ = 'America/Sao_Paulo'
+const fmtHora = (iso?: string) => iso
+  ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: TZ })
+  : '—'
+
 const STATUS_COLOR: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-600',
-  active: 'bg-blue-100 text-blue-700',
-  completed: 'bg-green-100 text-green-700',
-  cancelled: 'bg-red-100 text-red-600',
+  draft: 'bg-gray-100 text-gray-600', active: 'bg-blue-100 text-blue-700',
+  completed: 'bg-green-100 text-green-700', cancelled: 'bg-red-100 text-red-600',
 }
 const STATUS_LABEL: Record<string, string> = {
-  draft: 'Rascunho', active: 'Ativo', completed: 'Concluído', cancelled: 'Cancelado'
+  draft: 'Rascunho', active: 'Ativo', completed: 'Concluído', cancelled: 'Cancelado',
 }
 
-// ─── SortableItem ─────────────────────────────────────────────────────────────
+// ─── SortablePaciente ─────────────────────────────────────────────────────────
 function SortablePaciente({ pac }: { pac: Passenger }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: pac.id })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  }
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
   return (
     <div ref={setNodeRef} style={style}
       className="flex items-center gap-2 bg-white border rounded-lg px-3 py-2 select-none">
@@ -58,19 +61,38 @@ function SortablePaciente({ pac }: { pac: Passenger }) {
           </div>
         )}
       </div>
+      {pac.est_pickup_at ? (
+        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap font-mono">
+          🕐 {fmtHora(pac.est_pickup_at)}
+        </span>
+      ) : !pac.paciente.lat ? (
+        <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full whitespace-nowrap">
+          sem GPS
+        </span>
+      ) : null}
     </div>
   )
 }
 
-// ─── LegCard ──────────────────────────────────────────────────────────────────
+// ─── LegCard ─────────────────────────────────────────────────────────────────
 function LegCard({
-  leg, onDelete, onReorder
+  leg, onDelete, onReorder, onCalcRoute,
 }: {
   leg: Leg
   onDelete: (id: string) => void
   onReorder: (legId: string, passengers: Passenger[]) => void
+  onCalcRoute: (legId: string) => Promise<void>
 }) {
   const sensors = useSensors(useSensor(PointerSensor))
+  const [calculando, setCalculando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  async function calcular() {
+    setCalculando(true); setErro('')
+    try { await onCalcRoute(leg.id) }
+    catch (e: any) { setErro(e.message) }
+    finally { setCalculando(false) }
+  }
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
@@ -80,30 +102,80 @@ function LegCard({
     onReorder(leg.id, arrayMove(leg.passengers, oldIdx, newIdx))
   }
 
+  const temEstimativas = !!leg.est_hospital_at
+
   return (
-    <div className="bg-white rounded-xl shadow border border-gray-100">
-      <div className="flex items-center justify-between px-5 py-4 border-b">
-        <div>
+    <div className="bg-white rounded-xl shadow border border-gray-100 overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-4 border-b flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
           <div className="font-semibold text-gray-800">
             🏥 {leg.hospital.nome}
-            {leg.hospital.cidade && <span className="font-normal text-gray-400 text-sm ml-1">— {leg.hospital.cidade}</span>}
+            {leg.hospital.cidade && (
+              <span className="font-normal text-gray-400 text-sm ml-1">— {leg.hospital.cidade}</span>
+            )}
           </div>
-          <div className="text-sm text-gray-500 mt-0.5">🕐 Saída: {leg.horario_saida}</div>
+          <div className="text-sm text-gray-500 mt-0.5">🕐 Saída: {leg.horario_saida.substring(0,5)}</div>
         </div>
-        <button onClick={() => onDelete(leg.id)}
-          className="text-red-400 hover:text-red-600 text-sm px-2 py-1 rounded hover:bg-red-50">
-          🗑️ Remover
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button onClick={calcular} disabled={calculando}
+            className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 
+                       disabled:opacity-50 font-medium flex items-center gap-1">
+            {calculando ? <><span className="animate-spin">⏳</span> Calculando…</> : '🧮 Calcular Rota'}
+          </button>
+          <button onClick={() => onDelete(leg.id)}
+            className="text-red-400 hover:text-red-600 text-sm px-2 py-1 rounded hover:bg-red-50">
+            🗑️
+          </button>
+        </div>
       </div>
 
-      <div className="p-4 space-y-2">
+      {/* Erro de cálculo */}
+      {erro && (
+        <div className="mx-4 mt-3 px-3 py-2 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200">
+          {erro}
+        </div>
+      )}
+
+      {/* Alerta de conflito */}
+      {leg.conflict && (
+        <div className="mx-4 mt-3 px-3 py-2 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium">
+          {leg.conflict}
+        </div>
+      )}
+
+      {/* Estimativas */}
+      {temEstimativas && (
+        <div className="mx-4 mt-3 grid grid-cols-3 gap-2 text-center">
+          <div className="bg-blue-50 rounded-lg p-2">
+            <div className="text-xs text-blue-400 mb-0.5">Chegada hospital</div>
+            <div className="font-bold text-blue-700 text-sm">{fmtHora(leg.est_hospital_at)}</div>
+          </div>
+          <div className="bg-purple-50 rounded-lg p-2">
+            <div className="text-xs text-purple-400 mb-0.5">Retorno cidade</div>
+            <div className="font-bold text-purple-700 text-sm">{fmtHora(leg.est_return_at)}</div>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2">
+            <div className="text-xs text-gray-400 mb-0.5">Distância</div>
+            <div className="font-bold text-gray-700 text-sm">{leg.est_distance_km} km</div>
+          </div>
+          <div className="bg-green-50 rounded-lg p-2 col-span-3 flex justify-around">
+            <span className="text-xs text-green-700">🚗 Ida: <strong>{leg.est_outbound_min} min</strong></span>
+            <span className="text-xs text-gray-400">|</span>
+            <span className="text-xs text-green-700">🔄 Volta: <strong>{leg.est_return_min} min</strong></span>
+            <span className="text-xs text-gray-400">|</span>
+            <span className="text-xs text-green-700">⏱ Total: <strong>{(leg.est_outbound_min || 0) + (leg.est_return_min || 0)} min</strong></span>
+          </div>
+        </div>
+      )}
+
+      {/* Passageiros */}
+      <div className="p-4 space-y-2 mt-1">
         {leg.passengers.length === 0 ? (
           <p className="text-xs text-gray-400 text-center py-2">Nenhum paciente nesta viagem</p>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext
-              items={leg.passengers.map(p => p.id)}
-              strategy={verticalListSortingStrategy}>
+            <SortableContext items={leg.passengers.map(p => p.id)} strategy={verticalListSortingStrategy}>
               {leg.passengers.map(p => <SortablePaciente key={p.id} pac={p} />)}
             </SortableContext>
           </DndContext>
@@ -116,28 +188,26 @@ function LegCard({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function EditarPlano() {
-  const supabase   = createClientComponentClient()
-  const { id }     = useParams<{ id: string }>()
-  const router     = useRouter()
+  const supabase = createClientComponentClient()
+  const { id }   = useParams<{ id: string }>()
+  const router   = useRouter()
 
-  const [plano,      setPlano]      = useState<Plano | null>(null)
-  const [legs,       setLegs]       = useState<Leg[]>([])
-  const [hospitais,  setHospitais]  = useState<Hospital[]>([])
-  const [pacientes,  setPacientes]  = useState<Paciente[]>([])
-  const [loading,    setLoading]    = useState(true)
+  const [plano,        setPlano]        = useState<Plano | null>(null)
+  const [legs,         setLegs]         = useState<Leg[]>([])
+  const [hospitais,    setHospitais]    = useState<Hospital[]>([])
+  const [pacientes,    setPacientes]    = useState<Paciente[]>([])
+  const [loading,      setLoading]      = useState(true)
   const [painelAberto, setPainelAberto] = useState(false)
   const [salvandoLeg,  setSalvandoLeg]  = useState(false)
   const [salvandoOrdem,setSalvandoOrdem]= useState(false)
-  const [msg,        setMsg]        = useState('')
+  const [msg,          setMsg]          = useState('')
 
-  // Form do painel lateral
-  const [formHospital,  setFormHospital]  = useState('')
-  const [formHorario,   setFormHorario]   = useState('08:00')
-  const [buscaPac,      setBuscaPac]      = useState('')
-  const [selecionados,  setSelecionados]  = useState<Set<string>>(new Set())
-  const [loadingPacs,   setLoadingPacs]   = useState(false)
+  const [formHospital, setFormHospital] = useState('')
+  const [formHorario,  setFormHorario]  = useState('08:00')
+  const [buscaPac,     setBuscaPac]     = useState('')
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  const [loadingPacs,  setLoadingPacs]  = useState(false)
 
-  // Carregar plano + legs
   const carregar = useCallback(async () => {
     setLoading(true)
     const { data: p } = await supabase
@@ -148,74 +218,64 @@ export default function EditarPlano() {
 
     const { data: ls } = await supabase
       .from('route_legs')
-      .select(`id,horario_saida,ordem,hospital:hospitais(id,nome,cidade),
-               leg_passengers(id,ordem,paciente:pacientes(id,nome,endereco,bairro))`)
+      .select(`
+        id, horario_saida, ordem,
+        est_departure_at, est_hospital_at, est_return_at,
+        est_outbound_min, est_return_min, est_distance_km,
+        hospital:hospitais(id,nome,cidade),
+        leg_passengers(id,ordem,est_pickup_at,paciente:pacientes(id,nome,endereco,bairro,lat,lng))
+      `)
       .eq('plan_id', id)
       .order('ordem')
-    const mapeado: Leg[] = (ls || []).map((l: any) => ({
-      id: l.id,
-      hospital: l.hospital,
-      horario_saida: l.horario_saida,
-      ordem: l.ordem,
+
+    setLegs((ls || []).map((l: any) => ({
+      id: l.id, hospital: l.hospital, horario_saida: l.horario_saida, ordem: l.ordem,
+      est_departure_at: l.est_departure_at, est_hospital_at: l.est_hospital_at,
+      est_return_at: l.est_return_at, est_outbound_min: l.est_outbound_min,
+      est_return_min: l.est_return_min, est_distance_km: l.est_distance_km,
       passengers: (l.leg_passengers || [])
         .sort((a: any, b: any) => a.ordem - b.ordem)
-        .map((lp: any) => ({ id: lp.id, paciente: lp.paciente, ordem: lp.ordem }))
-    }))
-    setLegs(mapeado)
+        .map((lp: any) => ({ id: lp.id, paciente: lp.paciente, ordem: lp.ordem, est_pickup_at: lp.est_pickup_at })),
+    })))
     setLoading(false)
   }, [supabase, id])
 
   useEffect(() => { carregar() }, [carregar])
 
   useEffect(() => {
-    supabase.from('hospitais').select('id,nome,cidade').order('nome')
-      .then(({ data }) => setHospitais(data || []))
+    supabase.from('hospitais').select('id,nome,cidade').order('nome').then(({ data }) => setHospitais(data || []))
   }, [supabase])
 
-  // Carregar pacientes quando muda hospital no painel
   useEffect(() => {
     if (!formHospital) { setPacientes([]); return }
     setLoadingPacs(true)
-    supabase.from('pacientes').select('id,nome,endereco,bairro').order('nome')
+    supabase.from('pacientes').select('id,nome,endereco,bairro,lat,lng').order('nome')
       .then(({ data }) => { setPacientes(data || []); setLoadingPacs(false) })
   }, [supabase, formHospital])
 
-  // Filtro de busca de pacientes
   const pacientesFiltrados = pacientes.filter(p =>
     p.nome.toLowerCase().includes(buscaPac.toLowerCase())
   )
-
-  // IDs já adicionados em qualquer leg
   const jaAdicionados = new Set(legs.flatMap(l => l.passengers.map(p => p.paciente.id)))
 
-  function togglePaciente(id: string) {
-    setSelecionados(prev => {
-      const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n
-    })
+  function togglePaciente(pid: string) {
+    setSelecionados(prev => { const n = new Set(prev); n.has(pid) ? n.delete(pid) : n.add(pid); return n })
   }
 
   async function adicionarViagem() {
     if (!formHospital) { setMsg('Selecione o hospital destino'); return }
-    setSalvandoLeg(true)
-    setMsg('')
-    const novaOrdem = legs.length
-
+    setSalvandoLeg(true); setMsg('')
     const { data: leg, error } = await supabase
       .from('route_legs')
-      .insert({ plan_id: id, hospital_id: formHospital, horario_saida: formHorario, ordem: novaOrdem })
+      .insert({ plan_id: id, hospital_id: formHospital, horario_saida: formHorario, ordem: legs.length })
       .select('id').single()
-
     if (error) { setMsg('Erro: ' + error.message); setSalvandoLeg(false); return }
-
     if (selecionados.size > 0) {
-      const passengers = Array.from(selecionados).map((pid, i) => ({
-        leg_id: leg.id, paciente_id: pid, ordem: i
-      }))
-      await supabase.from('leg_passengers').insert(passengers)
+      await supabase.from('leg_passengers').insert(
+        Array.from(selecionados).map((pid, i) => ({ leg_id: leg.id, paciente_id: pid, ordem: i }))
+      )
     }
-
-    setSalvandoLeg(false)
-    setPainelAberto(false)
+    setSalvandoLeg(false); setPainelAberto(false)
     setFormHospital(''); setFormHorario('08:00'); setBuscaPac(''); setSelecionados(new Set())
     carregar()
   }
@@ -229,12 +289,39 @@ export default function EditarPlano() {
   async function handleReorder(legId: string, newPassengers: Passenger[]) {
     setLegs(prev => prev.map(l => l.id === legId ? { ...l, passengers: newPassengers } : l))
     setSalvandoOrdem(true)
-    await Promise.all(
-      newPassengers.map((p, i) =>
-        supabase.from('leg_passengers').update({ ordem: i }).eq('id', p.id)
-      )
-    )
+    await Promise.all(newPassengers.map((p, i) =>
+      supabase.from('leg_passengers').update({ ordem: i }).eq('id', p.id)
+    ))
     setSalvandoOrdem(false)
+  }
+
+  async function calcularRota(legId: string) {
+    const res = await fetch('/api/calcular-rota', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ leg_id: legId }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Erro desconhecido')
+
+    // Atualizar leg no estado local (sem recarregar tudo)
+    setLegs(prev => prev.map(l => {
+      if (l.id !== legId) return l
+      const pickupMap = Object.fromEntries(data.pickup_times.map((p: any) => [p.id, p.est_pickup_at]))
+      return {
+        ...l,
+        est_departure_at: data.est_departure_at,
+        est_hospital_at:  data.est_hospital_at,
+        est_return_at:    data.est_return_at,
+        est_outbound_min: data.est_outbound_min,
+        est_return_min:   data.est_return_min,
+        est_distance_km:  data.est_distance_km,
+        conflict: data.conflict || undefined,
+        passengers: l.passengers.map(p => ({
+          ...p, est_pickup_at: pickupMap[p.id] || p.est_pickup_at
+        })),
+      }
+    }))
   }
 
   async function mudarStatus(novoStatus: string) {
@@ -242,35 +329,27 @@ export default function EditarPlano() {
     setPlano(prev => prev ? { ...prev, status: novoStatus } : prev)
   }
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64 text-gray-400">Carregando…</div>
-  )
-  if (!plano) return (
-    <div className="flex items-center justify-center h-64 text-gray-400">Plano não encontrado</div>
-  )
+  if (loading) return <div className="flex items-center justify-center h-64 text-gray-400">Carregando…</div>
+  if (!plano)  return <div className="flex items-center justify-center h-64 text-gray-400">Plano não encontrado</div>
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <button onClick={() => router.push('/gestor/planos')}
-          className="text-gray-400 hover:text-gray-600 text-xl leading-none">←</button>
+        <button onClick={() => router.push('/gestor/planos')} className="text-gray-400 hover:text-gray-600 text-xl">←</button>
         <div className="flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold text-gray-800">
-              🚐 {plano.veiculo?.placa}
-            </h1>
+            <h1 className="text-xl font-bold text-gray-800">🚐 {plano.veiculo?.placa}</h1>
             {plano.veiculo?.modelo && <span className="text-gray-400 text-sm">{plano.veiculo.modelo}</span>}
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[plano.status]}`}>
               {STATUS_LABEL[plano.status]}
             </span>
-            {salvandoOrdem && <span className="text-xs text-gray-400 animate-pulse">Salvando ordem…</span>}
+            {salvandoOrdem && <span className="text-xs text-gray-400 animate-pulse">Salvando…</span>}
           </div>
           <div className="text-sm text-gray-500">
             👤 {plano.motorista?.nome} · 📅 {new Date(plano.data + 'T12:00').toLocaleDateString('pt-BR')}
           </div>
         </div>
-        {/* Mudar status */}
         <select value={plano.status} onChange={e => mudarStatus(e.target.value)}
           className="border rounded-lg px-2 py-1.5 text-xs text-gray-700">
           <option value="draft">Rascunho</option>
@@ -294,20 +373,21 @@ export default function EditarPlano() {
         </div>
       </div>
 
-      {/* Botão adicionar viagem */}
       <button onClick={() => { setPainelAberto(true); setMsg('') }}
         className="w-full border-2 border-dashed border-blue-200 text-blue-600 rounded-xl py-3 text-sm font-medium
                    hover:border-blue-400 hover:bg-blue-50 transition-colors">
         ➕ Adicionar Viagem
       </button>
 
-      {/* Lista de legs */}
       {legs.length === 0 ? (
         <div className="text-center text-gray-400 py-8">Nenhuma viagem adicionada ainda</div>
       ) : (
         <div className="space-y-4">
           {legs.map(l => (
-            <LegCard key={l.id} leg={l} onDelete={excluirLeg} onReorder={handleReorder} />
+            <LegCard key={l.id} leg={l}
+              onDelete={excluirLeg}
+              onReorder={handleReorder}
+              onCalcRoute={calcularRota} />
           ))}
         </div>
       )}
@@ -315,18 +395,14 @@ export default function EditarPlano() {
       {/* Painel lateral */}
       {painelAberto && (
         <div className="fixed inset-0 z-50 flex">
-          {/* Overlay */}
           <div className="flex-1 bg-black/30" onClick={() => setPainelAberto(false)} />
-          {/* Drawer */}
           <div className="w-full max-w-md bg-white shadow-2xl flex flex-col h-full overflow-hidden">
             <div className="px-6 py-4 border-b flex items-center justify-between">
               <h2 className="font-bold text-gray-800">🗺️ Nova Viagem</h2>
               <button onClick={() => setPainelAberto(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
-
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {msg && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-lg">{msg}</div>}
-
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Hospital destino *</label>
                 <select value={formHospital} onChange={e => { setFormHospital(e.target.value); setSelecionados(new Set()) }}
@@ -337,13 +413,11 @@ export default function EditarPlano() {
                   ))}
                 </select>
               </div>
-
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Horário de saída *</label>
                 <input type="time" value={formHorario} onChange={e => setFormHorario(e.target.value)}
                   className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
-
               {formHospital && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -351,9 +425,7 @@ export default function EditarPlano() {
                     <span className="text-xs text-blue-600">{selecionados.size} selecionado(s)</span>
                   </div>
                   <input value={buscaPac} onChange={e => setBuscaPac(e.target.value)}
-                    placeholder="Buscar paciente…"
-                    className="w-full border rounded-lg px-3 py-2 text-sm mb-2" />
-
+                    placeholder="Buscar paciente…" className="w-full border rounded-lg px-3 py-2 text-sm mb-2" />
                   {loadingPacs ? (
                     <div className="text-center text-gray-400 text-sm py-4">Carregando…</div>
                   ) : pacientesFiltrados.length === 0 ? (
@@ -362,7 +434,7 @@ export default function EditarPlano() {
                     <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
                       {pacientesFiltrados.map(p => {
                         const jaEsta = jaAdicionados.has(p.id)
-                        const sel = selecionados.has(p.id)
+                        const sel    = selecionados.has(p.id)
                         return (
                           <label key={p.id}
                             className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors
@@ -378,7 +450,8 @@ export default function EditarPlano() {
                                 </div>
                               )}
                             </div>
-                            {jaEsta && <span className="text-xs text-gray-400 whitespace-nowrap">já adicionado</span>}
+                            {!p.lat && <span className="text-xs text-orange-400 whitespace-nowrap">sem GPS</span>}
+                            {jaEsta && <span className="text-xs text-gray-400 whitespace-nowrap">adicionado</span>}
                           </label>
                         )
                       })}
@@ -387,7 +460,6 @@ export default function EditarPlano() {
                 </div>
               )}
             </div>
-
             <div className="px-6 py-4 border-t flex gap-3">
               <button onClick={() => setPainelAberto(false)}
                 className="flex-1 border border-gray-300 text-gray-600 rounded-lg py-2 text-sm hover:bg-gray-50">
@@ -395,7 +467,7 @@ export default function EditarPlano() {
               </button>
               <button onClick={adicionarViagem} disabled={salvandoLeg}
                 className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-                {salvandoLeg ? 'Salvando…' : '✓ Adicionar Viagem'}
+                {salvandoLeg ? 'Salvando…' : '✓ Adicionar'}
               </button>
             </div>
           </div>
