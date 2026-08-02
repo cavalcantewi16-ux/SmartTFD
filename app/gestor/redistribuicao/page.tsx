@@ -64,7 +64,7 @@ export default function Redistribuicao() {
       const { data: vgs, error: e1 } = await supabase
         .from('viagens')
         .select('*, motorista:profiles!viagens_motorista_id_fkey(id,nome), veiculo:veiculos(id,placa,capacidade)')
-        .eq('data_viagem', data)
+        .eq('data', data)
         .in('status', ['agendada', 'em_andamento'])
         .order('created_at')
       if (e1) throw e1
@@ -376,4 +376,3 @@ export default function Redistribuicao() {
     </div>
   )
 }
- 
