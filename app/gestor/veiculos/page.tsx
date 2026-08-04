@@ -131,10 +131,10 @@ export default function Veiculos() {
                   <div className={`w-3 h-3 rounded-full flex-shrink-0 ${v.ativo ? 'bg-green-500' : 'bg-gray-300'}`} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-gray-800">{v.placa}</span>
+                      <span className="font-bold text-gray-800">{v.modelo}</span>
                       {!v.ativo && <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Inativo</span>}
                     </div>
-                    <div className="text-sm text-gray-500">{v.modelo} · {v.capacidade} passageiros</div>
+                    <div className="text-sm text-gray-500">{v.placa} · {v.modelo} · {v.capacidade} passageiros</div>
                   </div>
                   <div className="flex gap-2 flex-shrink-0">
                     <Link href={`/gestor/veiculos/${v.id}`}
