@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import Link from 'next/link'
 
-// âââ Types ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface Hospital { id: string; nome: string; cidade?: string; lat?: number; lng?: number }
 interface Veiculo { id: string; placa: string; modelo?: string; capacidade: number }
 interface Motorista { id: string; nome: string }
@@ -43,12 +43,12 @@ interface GrupoOtimizado {
     motorista_id: string; motorista_nome: string
   } | null
   aviso: string | null
-  // EditÃ¡vel pelo gestor apÃ³s otimizaÃ§Ã£o:
+  // Editável pelo gestor após otimização:
   veiculo_escolhido_id?: string
   motorista_escolhido_id?: string
 }
 
-// âââ Helpers ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function amanha() {
   const d = new Date()
   d.setDate(d.getDate() + 1)
@@ -61,7 +61,7 @@ function fmtData(iso: string) {
   })
 }
 
-// âââ Page âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function PlanejamentoPage() {
   const supabase = createClientComponentClient()
 
@@ -83,7 +83,7 @@ export default function PlanejamentoPage() {
   const [msg, setMsg] = useState('')
   const [erroMsg, setErroMsg] = useState('')
 
-  // ââ Carregar dados base ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+  // ── Carregar dados base ───────────────────────────────────────────────────
   useEffect(() => {
     supabase.from('hospitais').select('id,nome,cidade,lat,lng').order('nome')
       .then(({ data: d }) => setHospitais(d || []))
@@ -93,7 +93,7 @@ export default function PlanejamentoPage() {
       .then(({ data: d }) => setMotoristas(d || []))
   }, [supabase])
 
-  // ââ Inicializar disponÃ­veis com todos os veÃ­culos ââââââââââââââââââââââââ
+  // ── Inicializar disponíveis com todos os veículos ────────────────────────
   useEffect(() => {
     if (!veiculos.length || !motoristas.length) return
     setDisponiveis(veiculos.map((v, i) => ({
@@ -106,7 +106,7 @@ export default function PlanejamentoPage() {
     })))
   }, [veiculos, motoristas])
 
-  // ââ Itens ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+  // ── Itens ──────────────────────────────────────────────────────────────────
   function addItem() {
     setItems(prev => [...prev, {
       _uid: crypto.randomUUID(),
@@ -131,7 +131,7 @@ export default function PlanejamentoPage() {
     setGrupos(null)
   }
 
-  // ââ VeÃ­culos disponÃ­veis ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+  // ── Veículos disponíveis ───────────────────────────────────────────────────
   function setDisp(idx: number, field: keyof VeiculoDisponivel, val: string) {
     setDisponiveis(prev => {
       const next = [...prev]
@@ -163,13 +163,13 @@ export default function PlanejamentoPage() {
     setDisponiveis(prev => prev.filter((_, i) => i !== idx))
   }
 
-  // ââ Otimizar âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+  // ── Otimizar ───────────────────────────────────────────────────────────────
   async function otimizar() {
     setErroMsg('')
     const invalidos = items.filter(i => !i.patient_name.trim() || !i.hospital_id)
     if (invalidos.length > 0) { setErroMsg('Preencha nome e hospital de todos os pacientes.'); return }
     if (items.length === 0) { setErroMsg('Adicione ao menos um paciente.'); return }
-    if (disponiveis.length === 0) { setErroMsg('Configure ao menos um veÃ­culo disponÃ­vel.'); return }
+    if (disponiveis.length === 0) { setErroMsg('Configure ao menos um veículo disponível.'); return }
 
     const itemsEnriquecidos = items.map(item => {
       const h = hospitais.find(h => h.id === item.hospital_id)
@@ -179,7 +179,7 @@ export default function PlanejamentoPage() {
         hospital_lat: h?.lat,
         hospital_lng: h?.lng,
         hospital_cidade: h?.cidade,
-        destination_name: h ? `${h.nome}${h.cidade ? ` â ${h.cidade}` : ''}` : 'Destino',
+        destination_name: h ? `${h.nome}${h.cidade ? ` — ${h.cidade}` : ''}` : 'Destino',
       }
     })
 
@@ -201,7 +201,7 @@ export default function PlanejamentoPage() {
     const json = await res.json()
     setOtimizando(false)
 
-    if (!res.ok) { setErroMsg(json.error || 'Erro na otimizaÃ§Ã£o'); return }
+    if (!res.ok) { setErroMsg(json.error || 'Erro na otimização'); return }
 
     setGrupos(json.grupos.map((g: GrupoOtimizado) => ({
       ...g,
@@ -211,7 +211,7 @@ export default function PlanejamentoPage() {
     setFase('resultado')
   }
 
-  // ââ Atualizar escolha de veÃ­culo/motorista por grupo ââââââââââââââââââââââ
+  // ── Atualizar escolha de veículo/motorista por grupo ──────────────────────
   function setGrupoVeiculo(idx: number, veiculo_id: string) {
     const v = veiculos.find(v => v.id === veiculo_id)
     setGrupos(prev => prev!.map((g, i) =>
@@ -230,7 +230,7 @@ export default function PlanejamentoPage() {
     ))
   }
 
-  // ââ Salvar como planos no DB âââââââââââââââââââââââââââââââââââââââââââââââ
+  // ── Salvar como planos no DB ───────────────────────────────────────────────
   async function salvarPlanos() {
     if (!grupos) return
     setSalvando(true)
@@ -284,20 +284,20 @@ export default function PlanejamentoPage() {
     }
 
     setSalvando(false)
-    setMsg(`â ${criados} plano(s) criados! Acesse Planos para ativar.`)
+    setMsg(`✅ ${criados} plano(s) criados! Acesse Planos para ativar.`)
     setTimeout(() => setMsg(''), 5000)
   }
 
-  // ââ Render ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
 
-      {/* CabeÃ§alho */}
+      {/* Cabeçalho */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">ð Planejamento DiÃ¡rio</h1>
+          <h1 className="text-2xl font-bold text-gray-800">📅 Planejamento Diário</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Crie todas as rotas de amanhÃ£ antecipadamente
+            Crie todas as rotas de amanhã antecipadamente
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -306,7 +306,7 @@ export default function PlanejamentoPage() {
           {fase === 'resultado' && (
             <button onClick={() => setFase('entrada')}
               className="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg text-sm hover:bg-gray-50">
-              â Editar entradas
+              ← Editar entradas
             </button>
           )}
         </div>
@@ -314,43 +314,40 @@ export default function PlanejamentoPage() {
 
       {/* Data selecionada */}
       <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2 text-sm text-blue-800 font-medium">
-        ð Planejando para: {fmtData(data)}
+        📌 Planejando para: {fmtData(data)}
       </div>
 
       {/* Mensagens */}
       {msg && (
         <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-800 font-medium">
-          {msg} <Link href="/gestor/planos" className="underline ml-1">Ver planos â</Link>
+          {msg} <Link href="/gestor/planos" className="underline ml-1">Ver planos →</Link>
         </div>
       )}
       {erroMsg && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
-          â ï¸ {erroMsg}
+          ⚠️ {erroMsg}
         </div>
       )}
 
-      {/* âââ FASE: ENTRADAââââââââââââââââââââââââââââââââââââââââââââââââââââ */}
+      {/* FASE: ENTRADA */}
       {fase === 'entrada' && (
         <>
-          {/* VeÃ­culos disponÃ­veis no dia */}
+          {/* Veículos disponíveis no dia */}
           <div className="bg-white rounded-xl shadow p-5 space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-gray-700">ð VeÃ­culos disponÃ­veis para o dia</h2>
-              <button onClick={addDisp}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium">
-                + Adicionar veÃ­culo
+              <h2 className="font-semibold text-gray-700">🚐 Veículos disponíveis para o dia</h2>
+              <button onClick={addDisp} className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                + Adicionar veículo
               </button>
             </div>
-            {disponiveis.length === 0 && (
-              <p className="text-sm text-gray-400">Nenhum veÃ­culo selecionado.</p>
-            )}
+            {disponiveis.length === 0 && <p className="text-sm text-gray-400">Nenhum veículo selecionado.</p>}
             <div className="space-y-2">
               {disponiveis.map((d, idx) => (
                 <div key={idx} className="flex items-center gap-2 flex-wrap">
                   <select value={d.veiculo_id} onChange={e => setDisp(idx, 'veiculo_id', e.target.value)}
                     className="border rounded-lg px-2 py-1.5 text-sm flex-1 min-w-0">
                     {veiculos.map(v => (
-                      <option key={v.id} value={v.id}>{v.placa} â {v.modelo || 'VeÃ­culo'} ({v.capacidade} lugares)</option>
+                      <option key={v.id} value={v.id}>{v.placa} — {v.modelo || 'Ve­culo'} ({v.capacidade} lugares)</option>
                     ))}
                   </select>
                   <select value={d.motorista_id} onChange={e => setDisp(idx, 'motorista_id', e.target.value)}
@@ -361,7 +358,7 @@ export default function PlanejamentoPage() {
                   </select>
                   <button onClick={() => removeDisp(idx)}
                     className="text-red-400 hover:text-red-600 px-2 py-1.5 text-sm flex-shrink-0">
-                    â
+                    ✕
                   </button>
                 </div>
               ))}
@@ -371,19 +368,18 @@ export default function PlanejamentoPage() {
           {/* Tabela de pacientes */}
           <div className="bg-white rounded-xl shadow overflow-hidden">
             <div className="p-4 border-b flex items-center justify-between">
-              <h2 className="font-semibold text-gray-700">ð¥ Pacientes e destinos</h2>
+              <h2 className="font-semibold text-gray-700">👥 Pacientes e destinos</h2>
               <button onClick={addItem}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bs-blue-700">
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
                 + Adicionar paciente
               </button>
             </div>
 
             {items.length === 0 ? (
               <div className="p-10 text-center text-gray-400">
-                <div className="text-3xl mb-2">ð</div>
-                <p className="text-sm">Adicione os pacientes que serÃ£o transportados amanhÃ£.</p>
-                <button onClick={addItem}
-                  className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium">
+                <div className="text-3xl mb-2">🋋</div>
+                <p className="text-sm">Adicione os pacientes que serão transportados amanhã.</p>
+                <button onClick={addItem} className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium">
                   + Adicionar primeiro paciente
                 </button>
               </div>
@@ -404,55 +400,33 @@ export default function PlanejamentoPage() {
                     {items.map(item => (
                       <tr key={item._uid} className="border-b hover:bg-gray-50 transition-colors">
                         <td className="px-3 py-2">
-                          <input
-                            value={item.patient_name}
-                            onChange={e => setItem(item._uid, 'patient_name', e.target.value)}
-                            placeholder="Nome do paciente"
-                            className="w-full border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5 text-sm"
-                          />
+                          <input value={item.patient_name} onChange={e => setItem(item._uid, 'patient_name', e.target.value)}
+                            placeholder="Nome do paciente" className="w-full border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5 text-sm" />
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number" min="0" max="6"
-                            value={item.companions_count}
-                            onChange={e => setItem(item._uid, 'companions_count', parseInt(e.target.value) || 0)}
-                            className="w-full border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5 text-sm text-center"
-                          />
+                          <input type="number" min="0" max="6" value={item.companions_count} onChange={e => setItem(item._uid, 'companions_count', parseInt(e.target.value) || 0)}
+                            className="w-full border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5 text-sm text-center" />
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            value={item.pickup_location}
-                            onChange={e => setItem(item._uid, 'pickup_location', e.target.value)}
-                            placeholder="Rua, nÃºmero â BoqueirÃ£o"
-                            className="w-full border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5 text-sm"
-                          />
+                          <input value={item.pickup_location} onChange={e => setItem(item._uid, 'pickup_location', e.target.value)}
+                            placeholder="Rua, número — Boqueirão" className="w-full border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5 text-sm" />
                         </td>
                         <td className="px-3 py-2">
-                          <select
-                            value={item.hospital_id}
-                            onChange={e => setItem(item._uid, 'hospital_id', e.target.value)}
-                            className="w-full border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5 text-sm"
-                          >
-                            <option value="">â Selecione â</option>
+                          <select value={item.hospital_id} onChange={e => setItem(item._uid, 'hospital_id', e.target.value)}
+                            className="w-full border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5 text-sm">
+                            <option value="">— Selecione —</option>
                             {hospitais.map(h => (
-                              <option key={h.id} value={h.id}>
-                                {h.nome}{h.cidade ? ` (${h.cidade})` : ''}
-                              </option>
+                              <option key={h.id} value={h.id}>{h.nome}{h.cidade ? ` (${h.cidade})` : ''}</option>
                             ))}
                           </select>
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            type="time"
-                            value={item.consultation_time}
-                            onChange={e => setItem(item._uid, 'consultation_time', e.target.value)}
-                            className="w-full border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5 text-sm"
-                          />
+                          <input type="time" value={item.consultation_time} onChange={e => setItem(item._uid, 'consultation_time', e.target.value)}
+                            className="w-full border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5 text-sm" />
                         </td>
                         <td className="px-2 py-2">
-                          <button onClick={() => removeItem(item._uid)}
-                            className="text-gray-300 hover:text-red-500 transition-colors">
-                            â
+                          <button onClick={() => removeItem(item._uid)} className="text-gray-300 hover:text-red-500 transition-colors">
+✕
                           </button>
                         </td>
                       </tr>
@@ -465,17 +439,11 @@ export default function PlanejamentoPage() {
             {items.length > 0 && (
               <div className="p-4 border-t bg-gray-50 flex items-center justify-between">
                 <span className="text-xs text-gray-500">
-                  {items.length} paciente(s) Â· {items.reduce((s, i) => s + 1 + i.companions_count, 0)} pessoas total
+                  {items.length} paciente(s) · {items.reduce((s, i) => s + 1 + i.companions_count, 0)} pessoas total
                 </span>
-                <button
-                  onClick={otimizar}
-                  disabled={otimizando}
+                <button onClick={otimizar} disabled={otimizando}
                   className="bg-blue-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-                  {otimizando ? (
-                    <><span className="animate-spin">â³</span> Otimizandoâ¦</>
-                  ) : (
-                    <>ð§  Otimizar rotas â</>
-                  )}
+                  {otimizando ? (<><span className="animate-spin">⏳</span> Otimizando…</>) : (<>🧠 Otimizar rotas →</>)}
                 </button>
               </div>
             )}
@@ -483,46 +451,38 @@ export default function PlanejamentoPage() {
         </>
       )}
 
-      {/*âââ FASE: RESULTADO ââââââââââââââââââââââââââââââââââââââââââââââââââ*/}
       {fase === 'resultado' && grupos && (
         <>
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="text-sm text-gray-600">
               <span className="font-semibold">{grupos.length} rota(s) otimizada(s)</span>
-              {' '}Â· {items.length} paciente(s)
-              {' '}Â· {items.reduce((s, i) => s + 1 + i.companions_count, 0)} pessoas
+              {items.length} paciente(s) · {items.reduce((s, i) => s + 1 + i.companions_count, 0)} pessoas
             </div>
-            <button
-              onClick={salvarPlanos}
-              disabled={salvando}
+            <button onClick={salvarPlanos} disabled={salvando}
               className="bg-green-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
-              {salvando ? 'â³ Criando planosâ¦' : 'ð¾ Salvar como Planos'}
+              {salvando ? '⏳ Criando planos …' : '💾 Salvar como Planos'}
             </button>
           </div>
 
           <div className="grid gap-4">
             {grupos.map((grupo, idx) => {
-              const corBorder = grupo.aviso?.includes('â ï¸')
-                ? 'border-orange-300'
-                : 'border-green-300'
-              const corHeader = grupo.aviso?.includes('â ï¸')
-                ? 'bg-orange-50 border-b border-orange-200'
-                : 'bg-green-50 border-b border-green-200'
+              const corBorder = grupo.aviso?.includes('⚠️') ? 'border-orange-300' : 'border-green-300'
+              const corHeader = grupo.aviso?.includes('⚠️') ? 'bg-orange-50 border-b border-orange-200' : 'bg-green-50 border-b border-green-200'
               return (
                 <div key={idx} className={`bg-white rounded-xl shadow border ${corBorder} overflow-hidden`}>
                   <div className={`${corHeader} px-5 py-4 flex items-center justify-between flex-wrap gap-3`}>
                     <div>
-                      <div className="font-bold text-gray-800 text-base">Rota {idx + 1} â {grupo.destination_name}</div>
+                      <div className="font-bold text-gray-800 text-base">Rota {idx + 1} — {grupo.destination_name}</div>
                       <div className="text-xs text-gray-500 mt-0.5">
-                        {grupo.patients.length} paciente(s) Â· {grupo.total_pessoas} pessoa(s)
+                        {grupo.patients.length} paciente(s) · {grupo.total_pessoas} pessoa(s)
                         {grupo.earliest_consultation !== grupo.latest_consultation
-                          ? ` Â· Consultas ${grupo.earliest_consultation}â${grupo.latest_consultation}`
-                          : ` Â· Consulta ${grupo.earliest_consultation}`}
+                          ? ` · Consultas ${grupo.earliest_consultation}–${grupo.latest_consultation}`
+                          : ` · Consulta ${grupo.earliest_consultation}`}
                       </div>
                     </div>
                     <div className="text-right text-sm">
-                      <div className="font-bold text-gray-800">ð SaÃ­da: {grupo.horario_saida}</div>
-                      <div className="text-xs text-gray-500">Chegada ~{grupo.horario_chegada_estimado} Â· Retorno ~{grupo.horario_retorno_estimado}</div>
+                      <div className="font-bold text-gray-800">🚀 Saída: {grupo.horario_saida}</div>
+                      <div className="text-xs text-gray-500">Chegada ~{grupo.horario_chegada_estimado} · Retorno ~{grupo.horario_retorno_estimado}</div>
                       <div className="text-xs text-gray-400">~{grupo.tempo_viagem_min} min de viagem</div>
                     </div>
                   </div>
@@ -532,12 +492,12 @@ export default function PlanejamentoPage() {
                       <div className="space-y-2">
                         {grupo.patients.map((p, i) => (
                           <div key={i} className="flex items-start gap-2 text-sm">
-                            <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-bold">{i + 1}</span>
+                            <span className="w%wh-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-bold">{i + 1}</span>
                             <div>
                               <div className="font-medium text-gray-800">{p.patient_name}</div>
                               {p.companions_count > 0 && <div className="text-xs text-gray-400">+{p.companions_count} acompanhante(s)</div>}
-                              {p.pickup_location && <div className="text-xs text-gray-400">ð {p.pickup_location}</div>}
-                              {p.consultation_time !== grupo.earliest_consultation && <div className="text-xs text-amber-600">â° Consulta {p.consultation_time} (agrupada)</div>}
+                              {p.pickup_location && <div className="text-xs text-gray-400">📍 {p.pickup_location}</div>}
+                              {p.consultation_time !== grupo.earliest_consultation && <div className="text-xs text-amber-600">⏰ Consulta {p.consultation_time} (agrupada)</div>}
                             </div>
                           </div>
                         ))}
@@ -545,23 +505,27 @@ export default function PlanejamentoPage() {
                     </div>
                     <div className="space-y-3">
                       <div>
-                        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">VeÃ­culo</div>
+                        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Veículo</div>
                         <select value={grupo.veiculo_escolhido_id || ''} onChange={e => setGrupoVeiculo(idx, e.target.value)}
                           className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
-                          <option value="">â Selecione â</option>
-                          {veiculos.map(v => <option key={v.id} value={v.id}>{v.placa} â {v.modelo || 'VeÃ­culo'} ({v.capacidade} lugares)</option>)}
+                          <option value="">— Selecione —</option>
+                          {veiculos.map(v => (
+                            <option key={v.id} value={v.id}>{v.placa} — {v.modelo || 'Ve­culo'} ({v.capacidade} lugares)</option>
+                          ))}
                         </select>
                       </div>
                       <div>
                         <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Motorista</div>
                         <select value={grupo.motorista_escolhido_id || ''} onChange={e => setGrupoMotorista(idx, e.target.value)}
                           className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
-                          <option value="">â Selecione â</option>
-                          {motoristas.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                          <option value="">— Selecione —</option>
+                          {motoristas.map(m => (
+                            <option key={m.id} value={m.id}>{m.nome}</option>
+                          ))}
                         </select>
                       </div>
                       {grupo.aviso && (
-                        <div className={`text-xs rounded-lg px-3 py-2 ${grupo.aviso.includes('â ï¸') ? 'bg-orange-50 text-orange-700 border border-orange-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                        <div className={`text-xs rounded-lg px-3 py-2 ${grupo.aviso.includes('⚠️') ? 'bg-orange-50 text-orange-700 border border-orange-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
                           {grupo.aviso}
                         </div>
                       )}
@@ -573,8 +537,8 @@ export default function PlanejamentoPage() {
           </div>
           <div className="flex justify-end pt-2">
             <button onClick={salvarPlanos} disabled={salvando}
-              className="bg-green-600 text-white px-8 py-3 rounded-xl text-base font-bold hover:bw-green-700 disabled:opacity-50">
-              {salvando ? 'â³ Criando planosâ¦' : 'ð¾ Salvar todos os planos'}
+              className="bg-green-600 text-white px-8 py-3 rounded-xl text-base font-bold hover:bg-green-700 disabled:opacity-50">
+              {salvando ? '⏳ Criando planos …' : '💾 Salvar todos os planos'}
             </button>
           </div>
         </>
