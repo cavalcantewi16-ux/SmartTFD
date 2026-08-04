@@ -1,6 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+﻿import { NextRequest, NextResponse } from 'next/server'
 
 const BOQUEIRAO = { lat: -7.4746, lng: -36.1365 }
 const BUFFER_MIN = 3
@@ -8,7 +6,7 @@ const JANELA_AGRUP_MIN = 30
 
 const TEMPOS_CIDADE: Record<string, number> = {
   'campina grande': 120, 'campina': 120,
-  'joao pessoa': 190, 'joão pessoa': 190, 'jp': 190,
+  'joao pessoa': 190, 'joÃ£o pessoa': 190, 'jp': 190,
   'recife': 250, 'caruaru': 155, 'patos': 140,
   'sousa': 195, 'cajazeiras': 220, 'guarabira': 130,
 }
@@ -116,7 +114,7 @@ export async function POST(req: NextRequest) {
 
     const avisos: string[] = []
     if (g.items.some(i => i.consultation_time !== g.earliest_time))
-      avisos.push(`Consultas agrupadas: ${g.earliest_time}–${g.latest_time} (janela ${JANELA_AGRUP_MIN} min)`)
+      avisos.push(`Consultas agrupadas: ${g.earliest_time}â€“${g.latest_time} (janela ${JANELA_AGRUP_MIN} min)`)
     if (veiculo && g.total_pessoas > veiculo.capacidade)
       avisos.push(`Grupo tem ${g.total_pessoas} pessoas, veiculo tem ${veiculo.capacidade} lugares`)
 
@@ -131,7 +129,7 @@ export async function POST(req: NextRequest) {
         id: veiculo.id, placa: veiculo.placa, modelo: veiculo.modelo,
         capacidade: veiculo.capacidade, motorista_id: veiculo.motorista_id, motorista_nome: veiculo.motorista_nome,
       } : null,
-      aviso: avisos.length ? avisos.join(' · ') : null,
+      aviso: avisos.length ? avisos.join(' Â· ') : null,
     }
   })
 
