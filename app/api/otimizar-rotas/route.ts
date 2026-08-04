@@ -48,9 +48,6 @@ interface Vehicle {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = createRouteHandlerClient({ cookies })
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return NextResponse.json({ error: 'Nao autorizado' }, { status: 401 })
 
   const { items, vehicles } = await req.json() as { items: PlanningItem[]; vehicles: Vehicle[] }
   if (!items?.length) return NextResponse.json({ error: 'Nenhum item' }, { status: 400 })
