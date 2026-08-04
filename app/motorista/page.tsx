@@ -328,7 +328,7 @@ export default function MotoristaPage() {
           <>
             {passeiroAtual && !todosHandled && (
               <div className="bg-blue-600 text-white rounded-2xl shadow p-5 space-y-3">
-                <div className="text-blue-200 text-xs font-medium uppercase tracking-wide">Pr̳{xima parada</div>
+                <div className="text-blue-200 text-xs font-medium uppercase tracking-wide">Próxima parada</div>
                 <div className="font-bold text-xl">{passeiroAtual.paciente.nome}</div>
                 {(passeiroAtual.paciente.endereco || passeiroAtual.paciente.bairro) && (
                   <div className="text-blue-100 text-sm">📍 {[passeiroAtual.paciente.endereco, passeiroAtual.paciente.bairro].filter(Boolean).join(', ')}</div>
