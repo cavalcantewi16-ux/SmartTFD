@@ -4,11 +4,11 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
 const GARAGEM = { lat: -7.4746, lng: -36.1365 }
 
-interface Paciente { id:string; nome:string; endereco?:string; bairro?:string; lat?:number|null; lng?:number|null }
+interface Paciente { id:string; nome:string; endereco?:string; bairro?:string; lat?:number|null; lng?:number|null; lat_gestor?:number|null; lng_gestor?:number|null }
 interface Hospital { id:string; nome:string; cidade?:string; lat?:number|null; lng?:number|null }
 interface Veiculo { id:string; placa:string; modelo:string; capacidade:number }
 interface Motorista { id:string; nome:string }
-interface PacRota { _uid:string; paciente_id:string; nome:string; acomp:number; localizacao:string; lat?:number|null; lng?:number|null; hospital_id:string; horario:string }
+interface PacRota { _uid:string; paciente_id:string; nome:string; acomp:number; localizacao:string; lat?:number|null; lng?:number|null; lat_gestor?:number|null; lng_gestor?:number|null; hospital_id:string; horario:string }
 interface Rota { _uid:string; motorista_id:string; motorista_nome:string; veiculo_id:string; veiculo_modelo:string; capacidade:number; pacs:PacRota[]; tempo_min:number|null; saida:string|null }
 
 function uid() { return crypto.randomUUID() }
@@ -41,7 +41,7 @@ export default function RotasDoDia() {
     sb.from('hospitais').select('id,nome,cidade,lat,lng').order('nome').then(({data:d})=>setHospitais(d||[]))
     sb.from('veiculos').select('id,placa,modelo,capacidade').order('modelo').then(({data:d})=>setVeiculos(d||[]))
     sb.from('profiles').select('id,nome').eq('role','motorista').order('nome').then(({data:d})=>setMotoristas(d||[]))
-    sb.from('pacientes').select('id,nome,endereco,bairro,lat,lng').order('nome').then(({data:d})=>setPacDB(d||[]))
+    sb.from('pacientes').select('id,nome,endereco,bairro,lat,lng,lat_gestor,lng_gestor').order('nome').then(({data:d})=>setPacDB(d||[]))
   }, [sb])
 
   useEffect(()=>{ if(!modal) setNovoForm(null) },[modal])
@@ -100,9 +100,9 @@ export default function RotasDoDia() {
     let prev=GARAGEM
     while(left.length>0){
       let bi=0,bd=Infinity
-      left.forEach((p,i)=>{const l=p.lat&&p.lng?{lat:p.lat,lng:p.lng}:GARAGEM;const d=hav(prev.lat,prev.lng,l.lat,l.lng);if(d<bd){bd=d;bi=i}})
+      left.forEach((p,i)=>{const l=p.lat_gestor&&p.lng_gestor?{lat:p.lat_gestor,lng:p.lng_gestor}:p.lat&&p.lng?{lat:p.lat,lng:p.lng}:GARAGEM;const d=hav(prev.lat,prev.lng,l.lat,l.lng);if(d<bd){bd=d;bi=i}})
       const[picked]=left.splice(bi,1);result.push(picked)
-      prev=picked.lat&&picked.lng?{lat:picked.lat,lng:picked.lng}:GARAGEM
+      prev=picked.lat_gestor&&picked.lng_gestor?{lat:picked.lat_gestor,lng:picked.lng_gestor}:picked.lat&&picked.lng?{lat:picked.lat,lng:picked.lng}:GARAGEM
     }
     return result
   }
@@ -111,7 +111,7 @@ export default function RotasDoDia() {
     const rota=rotas.find(r=>r._uid===ru); if(!rota||!rota.pacs.length) return
     const pacs=otimizarOrdem(rota.pacs)
     let km=0,prev=GARAGEM
-    for(const p of pacs){const pl=p.lat&&p.lng?{lat:p.lat,lng:p.lng}:GARAGEM;km+=hav(prev.lat,prev.lng,pl.lat,pl.lng);prev=pl}
+    for(const p of pacs){const pl=p.lat_gestor&&p.lng_gestor?{lat:p.lat_gestor,lng:p.lng_gestor}:p.lat&&p.lng?{lat:p.lat,lng:p.lng}:GARAGEM;km+=hav(prev.lat,prev.lng,pl.lat,pl.lng);prev=pl}
     const h=hospitais.find(h=>h.id===pacs[0]?.hospital_id)
     km+=h?.lat&&h?.lng?hav(prev.lat,prev.lng,h.lat,h.lng):95
     const pickup=pacs.length*10
@@ -123,7 +123,7 @@ export default function RotasDoDia() {
   function selPac(pac:Paciente) {
     if(!modal) return
     const loc=[pac.endereco,pac.bairro].filter(Boolean).join(', ')
-    setPac(modal.rotaUid,modal.pacUid,{paciente_id:pac.id,nome:pac.nome,localizacao:loc,lat:pac.lat,lng:pac.lng})
+    setPac(modal.rotaUid,modal.pacUid,{paciente_id:pac.id,nome:pac.nome,localizacao:loc,lat:pac.lat,lng:pac.lng,lat_gestor:pac.lat_gestor,lng_gestor:pac.lng_gestor})
     setModal(null)
   }
 
@@ -165,10 +165,15 @@ export default function RotasDoDia() {
     setDragging(null);setDragOver(null)
   }
 
-  function confirmarLoc(){
+  async function confirmarLoc(){
     if(!locModal||!locPick) return
     const q=locModal.q||locPick.lat.toFixed(5)+', '+locPick.lng.toFixed(5)
-    setPac(locModal.ru,locModal.pu,{localizacao:q,lat:locPick.lat,lng:locPick.lng})
+    setPac(locModal.ru,locModal.pu,{localizacao:q,lat_gestor:locPick.lat,lng_gestor:locPick.lng})
+    const rota=rotas.find(r=>r._uid===locModal.ru)
+    const pac=rota?.pacs.find(p=>p._uid===locModal.pu)
+    if(pac?.paciente_id){
+      await sb.from('pacientes').update({lat_gestor:locPick.lat,lng_gestor:locPick.lng}).eq('id',pac.paciente_id)
+    }
     setLocModal(null);setLocPick(null)
   }
 
@@ -237,7 +242,7 @@ export default function RotasDoDia() {
                     <button onClick={()=>setModal({rotaUid:rota._uid,pacUid:pac._uid,q:pac.nome})} className="w-full text-left font-semibold text-gray-800 hover:text-blue-600 truncate">{pac.nome||'👤 Paciente'}</button>
                     <div className="flex items-center gap-1"><span className="text-red-500">Acomp:</span><input type="number" min="0" max="9" value={pac.acomp} onChange={e=>setPac(rota._uid,pac._uid,{acomp:parseInt(e.target.value)||0})} className="w-10 border rounded px-1 text-center"/></div>
                     <div className="flex gap-1"><input value={pac.localizacao} placeholder="📍 Localizacao" onChange={e=>setPac(rota._uid,pac._uid,{localizacao:e.target.value})} className="flex-1 min-w-0 border rounded px-1.5 py-1"/><button onClick={()=>setLocModal({ru:rota._uid,pu:pac._uid,q:pac.localizacao,res:[]})} className="text-blue-500 hover:text-blue-700 text-base px-1" title="Buscar no mapa">&#128205;</button></div>
-                    {pac.lat&&pac.lng&&(<div className="bg-green-50 border border-green-200 rounded px-1.5 py-1 text-xs text-green-700 flex items-center justify-between gap-1"><span>[GPS] Loc. salva pelo motorista</span><span className="font-mono opacity-70">{pac.lat?.toFixed(4)}, {pac.lng?.toFixed(4)}</span></div>)}<select value={pac.hospital_id} onChange={e=>setPac(rota._uid,pac._uid,{hospital_id:e.target.value})} className="w-full border rounded px-1 py-1">
+                    {pac.lat_gestor&&pac.lng_gestor&&(<div className="bg-blue-50 border border-blue-200 rounded px-1.5 py-1 text-xs text-blue-700 flex items-center justify-between gap-1"><span>Loc. salva pelo gestor</span><span className="font-mono opacity-70">{pac.lat_gestor?.toFixed(4)}, {pac.lng_gestor?.toFixed(4)}</span></div>)}{pac.lat&&pac.lng&&(<div className="bg-green-50 border border-green-200 rounded px-1.5 py-1 text-xs text-green-700 flex items-center justify-between gap-1"><span>Loc. salva pelo motorista</span><span className="font-mono opacity-70">{pac.lat?.toFixed(4)}, {pac.lng?.toFixed(4)}</span></div>)}<select value={pac.hospital_id} onChange={e=>setPac(rota._uid,pac._uid,{hospital_id:e.target.value})} className="w-full border rounded px-1 py-1">
                       <option value="">-- Hospital --</option>
                       {hospitais.map(h=><option key={h.id} value={h.id}>{h.nome}</option>)}
                     </select>
