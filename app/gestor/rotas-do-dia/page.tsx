@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
 const GARAGEM = { lat: -7.4746, lng: -36.1365 }
@@ -29,6 +29,10 @@ export default function RotasDoDia() {
   const [modal, setModal] = useState<{rotaUid:string;pacUid:string;q:string}|null>(null)
   const [locModal, setLocModal] = useState<{ru:string;pu:string;q:string;res:any[]}|null>(null)
   const [buscando, setBuscando] = useState(false)
+  const [gmLoaded, setGmLoaded] = useState(false)
+  const [locPick, setLocPick] = useState<{lat:number;lng:number}|null>(null)
+  const mapRef = useRef<any>(null)
+  const markerRef = useRef<any>(null)
   const [novoForm, setNovoForm] = useState<{nome:string;end:string;bairro:string;tel:string}|null>(null)
 
   useEffect(() => {
@@ -39,6 +43,45 @@ export default function RotasDoDia() {
   }, [sb])
 
   useEffect(()=>{ if(!modal) setNovoForm(null) },[modal])
+
+  useEffect(()=>{
+    if(typeof window==='undefined') return
+    if((window as any).google?.maps){setGmLoaded(true);return}
+    if(document.getElementById('gmap-script')) return
+    const s=document.createElement('script')
+    s.id='gmap-script'
+    s.src=`https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY}&libraries=places&language=pt-BR`
+    s.async=true; s.onload=()=>setGmLoaded(true)
+    document.head.appendChild(s)
+  },[])
+
+  useEffect(()=>{
+    if(!locModal||!gmLoaded) return
+    mapRef.current=null
+    const t=setTimeout(()=>{
+      const div=document.getElementById('gmap-loc')
+      if(!div) return
+      const g=(window as any).google.maps
+      const center={lat:-7.4746,lng:-36.1365}
+      const map=new g.Map(div,{center,zoom:13,mapTypeControl:false,streetViewControl:false,fullscreenControl:false})
+      const marker=new g.Marker({map,position:center,draggable:true})
+      const onPos=(lat:number,lng:number)=>{marker.setPosition({lat,lng});setLocPick({lat,lng})}
+      map.addListener('click',(e:any)=>onPos(e.latLng.lat(),e.latLng.lng()))
+      marker.addListener('dragend',(e:any)=>onPos(e.latLng.lat(),e.latLng.lng()))
+      const inp=document.getElementById('gmap-search') as HTMLInputElement
+      if(inp){
+        const ac=new g.places.Autocomplete(inp,{componentRestrictions:{country:'br'}})
+        ac.addListener('place_changed',()=>{
+          const p=ac.getPlace();if(!p.geometry) return
+          const lat=p.geometry.location.lat(),lng=p.geometry.location.lng()
+          map.panTo({lat,lng});map.setZoom(17);onPos(lat,lng)
+          setLocModal(m=>m?{...m,q:p.formatted_address||inp.value}:null)
+        })
+      }
+      mapRef.current=map;markerRef.current=marker
+    },150)
+    return()=>{clearTimeout(t);mapRef.current=null}
+  },[locModal,gmLoaded])
 
   function addRota() {
     const m=motoristas[0], v=veiculos[0]
@@ -82,6 +125,13 @@ export default function RotasDoDia() {
     if(!locModal) return
     setPac(locModal.ru,locModal.pu,{localizacao:r.display_name.split(',').slice(0,2).join(',').trim(),lat:parseFloat(r.lat),lng:parseFloat(r.lon)})
     setLocModal(null)
+  }
+
+  function confirmarLoc(){
+    if(!locModal||!locPick) return
+    const q=locModal.q||locPick.lat.toFixed(5)+', '+locPick.lng.toFixed(5)
+    setPac(locModal.ru,locModal.pu,{localizacao:q,lat:locPick.lat,lng:locPick.lng})
+    setLocModal(null);setLocPick(null)
   }
 
   async function salvarNovoPac() {
@@ -169,21 +219,16 @@ export default function RotasDoDia() {
       )})}
       <button onClick={addRota} className="w-full py-4 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-blue-400 hover:text-blue-600 font-semibold text-sm">+ Adicionar nova rota</button>
       {locModal&&(
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>setLocModal(null)}>
-          <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-md" onClick={e=>e.stopPropagation()}>
-            <h3 className="font-bold text-gray-800 mb-3">&#128205; Buscar localização</h3>
-            <div className="flex gap-2">
-              <input autoFocus value={locModal.q} onChange={e=>setLocModal(m=>m?{...m,q:e.target.value}:null)} onKeyDown={e=>e.key==='Enter'&&buscarLoc(locModal.q)} placeholder="Ex: Rua das Flores, Boqueirão PB" className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
-              <button onClick={()=>buscarLoc(locModal.q)} disabled={buscando} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">{buscando?'...':'Buscar'}</button>
-            </div>
-            <div className="mt-2 space-y-1 max-h-64 overflow-y-auto">
-              {locModal.res.map((r:any,i:number)=>(
-                <button key={i} onClick={()=>selLoc(r)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-50 text-sm border-b border-gray-100">
-                  <div className="font-medium text-gray-800 truncate">{r.display_name.split(',').slice(0,3).join(',')}</div>
-                  <div className="text-xs text-gray-400">{r.lat}, {r.lon}</div>
-                </button>
-              ))}
-              {locModal.res.length===0&&locModal.q.length>=3&&!buscando&&<p className="text-sm text-gray-400 px-3 py-2">Clique em Buscar para pesquisar.</p>}
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>{setLocModal(null);setLocPick(null)}}>
+          <div className="bg-white rounded-2xl shadow-xl p-4 w-full max-w-2xl" onClick={e=>e.stopPropagation()}>
+            <h3 className="font-bold text-gray-800 mb-3">&#128205; Localizar paciente</h3>
+            <input id="gmap-search" autoFocus defaultValue={locModal.q} placeholder="Buscar endereco no Google Maps..." className="w-full border rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+            {!gmLoaded&&<div style={{height:'300px'}} className="flex items-center justify-center text-gray-400 text-sm border rounded-xl">Carregando mapa...</div>}
+            {gmLoaded&&<div id="gmap-loc" style={{height:'300px',width:'100%',borderRadius:'12px'}}/>}
+            <div className="flex gap-2 mt-3 items-center">
+              {locPick&&<span className="text-xs text-gray-500 flex-1">&#128205; {locPick.lat.toFixed(5)}, {locPick.lng.toFixed(5)}</span>}
+              <button onClick={()=>{setLocModal(null);setLocPick(null)}} className="px-4 py-2 rounded-lg border text-sm">Cancelar</button>
+              <button onClick={confirmarLoc} disabled={!locPick} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-40">Confirmar localizacao</button>
             </div>
           </div>
         </div>
