@@ -193,7 +193,7 @@ export default function RotasDoDia() {
       const{data:plan,error:e1}=await sb.from('route_plans').insert({data,motorista_id:rota.motorista_id,veiculo_id:rota.veiculo_id,status:'draft'}).select('id').single()
       if(e1){console.error('route_plans error:',e1);continue}
       if(!plan) continue
-      const{data:leg}=await sb.from('route_legs').insert({route_plan_id:plan.id,hospital_id:rota.pacs[0]?.hospital_id,horario_saida:rota.saida||'06:00',ordem:1,status:'aguardando',est_outbound_min:rota.tempo_min}).select('id').single()
+      const{data:leg}=await sb.from('route_legs').insert({plan_id:plan.id,hospital_id:rota.pacs[0]?.hospital_id,horario_saida:rota.saida||'06:00',ordem:1,status:'aguardando',est_outbound_min:rota.tempo_min}).select('id').single()
       if(!leg) continue
       for(let i=0;i<rota.pacs.length;i++){const p=rota.pacs[i];if(p.paciente_id)await sb.from('leg_passengers').insert({leg_id:leg.id,paciente_id:p.paciente_id,ordem:i+1,status:'aguardando'})}
       ok++
