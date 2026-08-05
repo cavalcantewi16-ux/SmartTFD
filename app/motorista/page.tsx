@@ -81,7 +81,9 @@ export default function MotoristaPage() {
     const userId = uid || user?.id
     if (!userId) return
     const hoje = new Date().toLocaleDateString('svSE')
-    const { data } = await supabase
+    let data:any=null
+    try{
+    const {data:d} = await supabase
       .from('route_plans')
       .select(`id, data, status,veiculo:veiculos(id,placa,modelo),motorista:profiles(id,nome),route_legs(id,horario_saida,ordem,status,est_departure_at,est_hospital_at,est_return_at,est_outbound_min,est_return_min,hospital:hospitais(id,nome,cidade,lat,lng),leg_passengers(id,ordem,status,est_pickup_at,paciente:pacientes(id,nome,endereco,bairro,lat,lng)))`)
       .eq('data', hoje)
@@ -90,12 +92,13 @@ export default function MotoristaPage() {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
-    if (data) {
+    if (d) { const data=d;
       const legsOrdenados: Leg[] = ((data.route_legs as any[]) || [])
         .sort((a, b) => a.ordem - b.ordem)
         .map((l: any) => ({ ...l, passengers: (l.leg_passengers || []).sort((a: any, b: any) => a.ordem - b.ordem) }))
       setPlan({ ...(data as any), legs: legsOrdenados })
     } else { setPlan(null) }
+    }catch(e){console.error('carregar error:',e)}
     setLoading(false)
   }, [supabase, user?.id])
 
