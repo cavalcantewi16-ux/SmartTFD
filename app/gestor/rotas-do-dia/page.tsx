@@ -218,7 +218,7 @@ export default function RotasDoDia() {
       for(let i=0;i<rota.pacs.length;i++){const p=rota.pacs[i];if(p.paciente_id)await sb.from('leg_passengers').insert({leg_id:leg.id,paciente_id:p.paciente_id,ordem:i+1,status:'aguardando'})}
       ok++
     }
-    setSalvando(false); setMsg(`✅ ${ok} rota(s) salva(s)!`); setTimeout(()=>setMsg(''),4000)
+    setSalvando(false); setMsg(`Salvo: ${ok} rota(s)!`); setTimeout(()=>setMsg(''),4000)
   }
 
   const resultados = modal && modal.q.length>=2 ? pacDB.filter(p=>p.nome.toLowerCase().includes(modal.q.toLowerCase())).slice(0,8) : []
