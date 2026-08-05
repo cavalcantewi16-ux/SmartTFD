@@ -27,6 +27,8 @@ export default function RotasDoDia() {
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
   const [modal, setModal] = useState<{rotaUid:string;pacUid:string;q:string}|null>(null)
+  const [locModal, setLocModal] = useState<{ru:string;pu:string;q:string;res:any[]}|null>(null)
+  const [buscando, setBuscando] = useState(false)
 
   useEffect(() => {
     sb.from('hospitais').select('id,nome,cidade,lat,lng').order('nome').then(({data:d})=>setHospitais(d||[]))
@@ -61,6 +63,22 @@ export default function RotasDoDia() {
     const loc=[pac.endereco,pac.bairro].filter(Boolean).join(', ')
     setPac(modal.rotaUid,modal.pacUid,{paciente_id:pac.id,nome:pac.nome,localizacao:loc,lat:pac.lat,lng:pac.lng})
     setModal(null)
+  }
+
+  async function buscarLoc(q:string) {
+    if(q.length<3) return
+    setBuscando(true)
+    try {
+      const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=br&q='+encodeURIComponent(q), {headers:{'Accept-Language':'pt-BR'}})
+      const d = await r.json()
+      setLocModal(m=>m?{...m,res:d}:null)
+    } finally { setBuscando(false) }
+  }
+
+  function selLoc(r:any) {
+    if(!locModal) return
+    setPac(locModal.ru,locModal.pu,{localizacao:r.display_name.split(',').slice(0,2).join(',').trim(),lat:parseFloat(r.lat),lng:parseFloat(r.lon)})
+    setLocModal(null)
   }
 
   async function salvar() {
@@ -118,7 +136,7 @@ export default function RotasDoDia() {
                   <div key={pac._uid} className="bg-white rounded-xl border border-gray-200 p-3 min-w-[170px] w-44 flex-shrink-0 space-y-2 text-xs">
                     <button onClick={()=>setModal({rotaUid:rota._uid,pacUid:pac._uid,q:pac.nome})} className="w-full text-left font-semibold text-gray-800 hover:text-blue-600 truncate">{pac.nome||'👤 Paciente'}</button>
                     <div className="flex items-center gap-1"><span className="text-red-500">Acomp:</span><input type="number" min="0" max="9" value={pac.acomp} onChange={e=>setPac(rota._uid,pac._uid,{acomp:parseInt(e.target.value)||0})} className="w-10 border rounded px-1 text-center"/></div>
-                    <input value={pac.localizacao} placeholder="📍 Localizacao" onChange={e=>setPac(rota._uid,pac._uid,{localizacao:e.target.value})} className="w-full border rounded px-1.5 py-1 truncate"/>
+                    <div className="flex gap-1"><input value={pac.localizacao} placeholder="📍 Localizacao" onChange={e=>setPac(rota._uid,pac._uid,{localizacao:e.target.value})} className="flex-1 min-w-0 border rounded px-1.5 py-1"/><button onClick={()=>setLocModal({ru:rota._uid,pu:pac._uid,q:pac.localizacao,res:[]})} className="text-blue-500 hover:text-blue-700 text-base px-1" title="Buscar no mapa">&#128205;</button></div>
                     <select value={pac.hospital_id} onChange={e=>setPac(rota._uid,pac._uid,{hospital_id:e.target.value})} className="w-full border rounded px-1 py-1">
                       <option value="">-- Hospital --</option>
                       {hospitais.map(h=><option key={h.id} value={h.id}>{h.nome}</option>)}
@@ -138,6 +156,26 @@ export default function RotasDoDia() {
         </div>
       )})}
       <button onClick={addRota} className="w-full py-4 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-blue-400 hover:text-blue-600 font-semibold text-sm">+ Adicionar nova rota</button>
+      {locModal&&(
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>setLocModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-md" onClick={e=>e.stopPropagation()}>
+            <h3 className="font-bold text-gray-800 mb-3">&#128205; Buscar localização</h3>
+            <div className="flex gap-2">
+              <input autoFocus value={locModal.q} onChange={e=>setLocModal(m=>m?{...m,q:e.target.value}:null)} onKeyDown={e=>e.key==='Enter'&&buscarLoc(locModal.q)} placeholder="Ex: Rua das Flores, Boqueirão PB" className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+              <button onClick={()=>buscarLoc(locModal.q)} disabled={buscando} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">{buscando?'...':'Buscar'}</button>
+            </div>
+            <div className="mt-2 space-y-1 max-h-64 overflow-y-auto">
+              {locModal.res.map((r:any,i:number)=>(
+                <button key={i} onClick={()=>selLoc(r)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-50 text-sm border-b border-gray-100">
+                  <div className="font-medium text-gray-800 truncate">{r.display_name.split(',').slice(0,3).join(',')}</div>
+                  <div className="text-xs text-gray-400">{r.lat}, {r.lon}</div>
+                </button>
+              ))}
+              {locModal.res.length===0&&locModal.q.length>=3&&!buscando&&<p className="text-sm text-gray-400 px-3 py-2">Clique em Buscar para pesquisar.</p>}
+            </div>
+          </div>
+        </div>
+      )}
       {modal&&(
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>setModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-md" onClick={e=>e.stopPropagation()}>
