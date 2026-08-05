@@ -207,7 +207,7 @@ export default function RotasDoDia() {
 
   async function salvar() {
     setSalvando(true); let ok=0
-    await sb.from('route_plans').delete().eq('data',data)`n    await sb.from('route_plans').delete().eq('data',data)
+    await sb.from('route_plans').delete().eq('data',data)
     for(const rota of rotas) {
       if(!rota.motorista_id||!rota.veiculo_id||!rota.pacs.length) continue
       const{data:plan,error:e1}=await sb.from('route_plans').insert({data,motorista_id:rota.motorista_id,veiculo_id:rota.veiculo_id,status:'draft'}).select('id').single()
