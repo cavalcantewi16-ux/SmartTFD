@@ -80,7 +80,7 @@ export default function MotoristaPage() {
   const carregar = useCallback(async (uid?: string) => {
     const userId = uid || user?.id
     if (!userId) return
-    const hoje = new Date().toLocaleDateString('svSE')
+    const d=new Date();const hoje=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')
     let data:any=null
     try{
     const {data:d} = await supabase
