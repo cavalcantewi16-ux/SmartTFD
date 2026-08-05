@@ -50,7 +50,8 @@ export default function RotasDoDia() {
     for(const p of rota.pacs){const pl=p.lat&&p.lng?{lat:p.lat,lng:p.lng}:GARAGEM;km+=hav(prev.lat,prev.lng,pl.lat,pl.lng);prev=pl}
     const h=hospitais.find(h=>h.id===rota.pacs[0]?.hospital_id)
     km+=h?.lat&&h?.lng?hav(prev.lat,prev.lng,h.lat,h.lng):95
-    const tempo=Math.ceil(km*1.45/68*60)
+    const pickup=rota.pacs.length*10
+    const tempo=Math.ceil(km*1.6)+pickup
     const min=rota.pacs.reduce((m,p)=>Math.min(m,timeToMin(p.horario)),Infinity)
     setRota(ru,{tempo_min:tempo,saida:min===Infinity?null:minToTime(min-tempo-15)})
   }
