@@ -184,8 +184,9 @@ export default function RotasDoDia() {
     setPacDB(p=>[...p,novo])
     selPac(novo)
     setNovoForm(null)
-  }  useEffect(()=>{
+  }  const loadedDate=useRef('');useEffect(()=>{
     if(!motoristas.length||!veiculos.length)return
+    if(loadedDate.current===data)return
     async function load(){
       const{data:plans}=await sb.from('route_plans').select('id,motorista_id,veiculo_id,route_legs(id,hospital_id,horario_saida,est_outbound_min,leg_passengers(paciente_id,ordem,pacientes(id,nome,endereco,bairro,lat,lng,lat_gestor,lng_gestor)))').eq('data',data)
       if(!plans?.length){setRotas([]);return}
@@ -200,12 +201,13 @@ export default function RotasDoDia() {
         return{_uid:crypto.randomUUID(),motorista_id:plan.motorista_id||'',motorista_nome:mot?.nome||'',veiculo_id:plan.veiculo_id||'',veiculo_modelo:vei?.modelo||'',capacidade:vei?.capacidade||0,pacs,tempo_min:leg?.est_outbound_min??null,saida:leg?.horario_saida?.slice(0,5)??null}
       }))
     }
-    load()
+    load();loadedDate.current=data
   },[data,motoristas,veiculos])
   
 
   async function salvar() {
     setSalvando(true); let ok=0
+    await sb.from('route_plans').delete().eq('data',data)`n    await sb.from('route_plans').delete().eq('data',data)
     for(const rota of rotas) {
       if(!rota.motorista_id||!rota.veiculo_id||!rota.pacs.length) continue
       const{data:plan,error:e1}=await sb.from('route_plans').insert({data,motorista_id:rota.motorista_id,veiculo_id:rota.veiculo_id,status:'draft'}).select('id').single()
