@@ -33,6 +33,8 @@ export default function RotasDoDia() {
   const [locPick, setLocPick] = useState<{lat:number;lng:number}|null>(null)
   const mapRef = useRef<any>(null)
   const markerRef = useRef<any>(null)
+  const [dragging, setDragging] = useState<{ru:string;pu:string}|null>(null)
+  const [dragOver, setDragOver] = useState<{ru:string;pu:string}|null>(null)
   const [novoForm, setNovoForm] = useState<{nome:string;end:string;bairro:string;tel:string}|null>(null)
 
   useEffect(() => {
@@ -92,16 +94,30 @@ export default function RotasDoDia() {
   function setPac(ru:string,pu:string,patch:Partial<PacRota>){setRotas(p=>p.map(r=>r._uid!==ru?r:{...r,pacs:r.pacs.map(p=>p._uid!==pu?p:{...p,...patch})}))}
   function removePac(ru:string,pu:string){setRotas(p=>p.map(r=>r._uid!==ru?r:{...r,pacs:r.pacs.filter(p=>p._uid!==pu)}))}
 
+  function otimizarOrdem(pacs:PacRota[]):PacRota[]{
+    if(pacs.length<=1) return pacs
+    const left=[...pacs];const result:PacRota[]=[]
+    let prev=GARAGEM
+    while(left.length>0){
+      let bi=0,bd=Infinity
+      left.forEach((p,i)=>{const l=p.lat&&p.lng?{lat:p.lat,lng:p.lng}:GARAGEM;const d=hav(prev.lat,prev.lng,l.lat,l.lng);if(d<bd){bd=d;bi=i}})
+      const[picked]=left.splice(bi,1);result.push(picked)
+      prev=picked.lat&&picked.lng?{lat:picked.lat,lng:picked.lng}:GARAGEM
+    }
+    return result
+  }
+
   function calcTempo(ru:string) {
     const rota=rotas.find(r=>r._uid===ru); if(!rota||!rota.pacs.length) return
+    const pacs=otimizarOrdem(rota.pacs)
     let km=0,prev=GARAGEM
-    for(const p of rota.pacs){const pl=p.lat&&p.lng?{lat:p.lat,lng:p.lng}:GARAGEM;km+=hav(prev.lat,prev.lng,pl.lat,pl.lng);prev=pl}
-    const h=hospitais.find(h=>h.id===rota.pacs[0]?.hospital_id)
+    for(const p of pacs){const pl=p.lat&&p.lng?{lat:p.lat,lng:p.lng}:GARAGEM;km+=hav(prev.lat,prev.lng,pl.lat,pl.lng);prev=pl}
+    const h=hospitais.find(h=>h.id===pacs[0]?.hospital_id)
     km+=h?.lat&&h?.lng?hav(prev.lat,prev.lng,h.lat,h.lng):95
-    const pickup=rota.pacs.length*10
+    const pickup=pacs.length*10
     const tempo=Math.ceil(km*1.6)+pickup
-    const min=rota.pacs.reduce((m,p)=>Math.min(m,timeToMin(p.horario)),Infinity)
-    setRota(ru,{tempo_min:tempo,saida:min===Infinity?null:minToTime(min-tempo-15)})
+    const min=pacs.reduce((m,p)=>Math.min(m,timeToMin(p.horario)),Infinity)
+    setRota(ru,{pacs,tempo_min:tempo,saida:min===Infinity?null:minToTime(min-tempo-15)})
   }
 
   function selPac(pac:Paciente) {
@@ -125,6 +141,28 @@ export default function RotasDoDia() {
     if(!locModal) return
     setPac(locModal.ru,locModal.pu,{localizacao:r.display_name.split(',').slice(0,2).join(',').trim(),lat:parseFloat(r.lat),lng:parseFloat(r.lon)})
     setLocModal(null)
+  }
+
+  function onDropOnPac(targetRu:string,targetPu:string){
+    if(!dragging) return
+    if(dragging.ru===targetRu&&dragging.pu===targetPu){setDragging(null);return}
+    setRotas(prev=>{
+      let moved:PacRota|undefined
+      const step1=prev.map(r=>{
+        if(r._uid!==dragging.ru) return r
+        moved=r.pacs.find(p=>p._uid===dragging.pu)
+        return{...r,pacs:r.pacs.filter(p=>p._uid!==dragging.pu)}
+      })
+      if(!moved) return prev
+      return step1.map(r=>{
+        if(r._uid!==targetRu) return r
+        const pacs=[...r.pacs]
+        const toIdx=pacs.findIndex(p=>p._uid===targetPu)
+        pacs.splice(toIdx>=0?toIdx:pacs.length,0,moved!)
+        return{...r,pacs}
+      })
+    })
+    setDragging(null);setDragOver(null)
   }
 
   function confirmarLoc(){
@@ -195,7 +233,7 @@ export default function RotasDoDia() {
             <div className="flex-1 bg-gray-50 p-4">
               <div className="flex gap-2 overflow-x-auto pb-2">
                 {rota.pacs.map(pac=>(
-                  <div key={pac._uid} className="bg-white rounded-xl border border-gray-200 p-3 min-w-[170px] w-44 flex-shrink-0 space-y-2 text-xs">
+                  <div key={pac._uid} draggable onDragStart={()=>setDragging({ru:rota._uid,pu:pac._uid})} onDragOver={e=>{e.preventDefault();setDragOver({ru:rota._uid,pu:pac._uid})}} onDrop={e=>{e.preventDefault();onDropOnPac(rota._uid,pac._uid)}} onDragEnd={()=>{setDragging(null);setDragOver(null)}} className={`bg-white rounded-xl border p-3 min-w-[170px] w-44 flex-shrink-0 space-y-2 text-xs cursor-grab transition-opacity ${dragOver?.pu===pac._uid&&dragging?.pu!==pac._uid?"border-blue-400 border-2":"border-gray-200"} ${dragging?.pu===pac._uid?"opacity-40":""}`}>
                     <button onClick={()=>setModal({rotaUid:rota._uid,pacUid:pac._uid,q:pac.nome})} className="w-full text-left font-semibold text-gray-800 hover:text-blue-600 truncate">{pac.nome||'👤 Paciente'}</button>
                     <div className="flex items-center gap-1"><span className="text-red-500">Acomp:</span><input type="number" min="0" max="9" value={pac.acomp} onChange={e=>setPac(rota._uid,pac._uid,{acomp:parseInt(e.target.value)||0})} className="w-10 border rounded px-1 text-center"/></div>
                     <div className="flex gap-1"><input value={pac.localizacao} placeholder="📍 Localizacao" onChange={e=>setPac(rota._uid,pac._uid,{localizacao:e.target.value})} className="flex-1 min-w-0 border rounded px-1.5 py-1"/><button onClick={()=>setLocModal({ru:rota._uid,pu:pac._uid,q:pac.localizacao,res:[]})} className="text-blue-500 hover:text-blue-700 text-base px-1" title="Buscar no mapa">&#128205;</button></div>
