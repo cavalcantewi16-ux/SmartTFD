@@ -1,514 +1,263 @@
 'use client'
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import { useRouter } from 'next/navigation'
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface Paciente { id: string; nome: string; endereco?: string; bairro?: string; lat?: number; lng?: number }
-interface Passenger { id: string; paciente: Paciente; ordem: number; status: string; est_pickup_at?: string }
-interface Hospital { id: string; nome: string; cidade?: string; lat?: number; lng?: number }
-interface Leg {
-  id: string; hospital: Hospital; horario_saida: string; ordem: number; status: string
-  passengers: Passenger[]
-  est_departure_at?: string; est_hospital_at?: string; est_return_at?: string
-  est_outbound_min?: number; est_return_min?: number
+import{useEffect,useState,useCallback,useRef}from'react'
+import{createClientComponentClient}from'@supabase/auth-helpers-nextjs'
+import{useRouter}from'next/navigation'
+interface Paciente{id:string;nome:string;endereco?:string;bairro?:string;lat?:number;lng?:number}
+interface Passenger{id:string;paciente:Paciente;ordem:number;status:string;est_pickup_at?:string}
+interface Hospital{id:string;nome:string;cidade?:string;lat?:number;lng?:number}
+interface Leg{id:string;hospital:Hospital;horario_saida:string;ordem:number;status:string;passengers:Passenger[];est_departure_at?:string;est_outbound_min?:number;est_return_min?:number}
+interface Plan{id:string;data:string;status:string;veiculo:{id:string;placa:string;modelo?:string;capacidade?:number};motorista:{id:string;nome:string};legs:Leg[]}
+const TZ='America/Sao_Paulo'
+function fmtHora(iso?:string|null,fb?:string){if(iso)return new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:TZ});if(fb)return fb.substring(0,5);return'--:--'}
+function mapsUrl(p:Paciente){if(p.lat&&p.lng)return`https://www.google.com/maps?q=${p.lat},${p.lng}`;const a=[p.endereco,p.bairro].filter(Boolean).join(', ');return a?`https://www.google.com/maps/search/${encodeURIComponent(a)}`:'#'}
+function Countdown({targetIso}:{targetIso:string}){
+  const[diff,setDiff]=useState(0)
+  useEffect(()=>{const t=new Date(targetIso).getTime();const tick=()=>setDiff(Math.max(0,Math.floor((t-Date.now())/1000)));tick();const id=setInterval(tick,1000);return()=>clearInterval(id)},[targetIso])
+  if(diff<=0)return<span className="text-green-400 font-bold text-3xl animate-pulse">Hora de sair!</span>
+  const h=Math.floor(diff/3600),m=Math.floor((diff%3600)/60),s=diff%60
+  return<span className="font-mono font-bold text-4xl text-blue-300 tracking-widest">{h>0&&`${h}:`}{String(m).padStart(2,'0')}:{String(s).padStart(2,'0')}</span>
 }
-interface Plan {
-  id: string; data: string; status: string
-  veiculo: { id: string; placa: string; modelo?: string }
-  motorista: { id: string; nome: string }
-  legs: Leg[]
+const STATUS_CONFIG:Record<string,{label:string;color:string;bg:string}> = {
+  aguardando:{label:'Aguardando',color:'text-yellow-400',bg:'bg-yellow-400/10 border-yellow-400/30'},
+  embarcou:{label:'Embarcou',color:'text-green-400',bg:'bg-green-400/10 border-green-400/30'},
+  liberado:{label:'Liberado',color:'text-blue-400',bg:'bg-blue-400/10 border-blue-400/30'},
+  outro_motorista:{label:'Outro Motorista',color:'text-orange-400',bg:'bg-orange-400/10 border-orange-400/30'},
+  desistiu:{label:'Desistiu',color:'text-red-400',bg:'bg-red-400/10 border-red-400/30'},
+  ausente:{label:'Ausente',color:'text-gray-400',bg:'bg-gray-400/10 border-gray-400/30'},
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-const TZ = 'America/Sao_Paulo'
-
-function fmtHora(iso?: string | null, fallback?: string) {
-  if (iso) return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: TZ })
-  if (fallback) return fallback.substring(0, 5)
-  return '—'
-}
-
-function mapsUrl(p: Paciente) {
-  if (p.lat && p.lng) return `https://www.google.com/maps?q=${p.lat},${p.lng}`
-  const addr = [p.endereco, p.bairro].filter(Boolean).join(', ')
-  return addr ? `https://www.google.com/maps/search/${encodeURIComponent(addr)}` : '#'
-}
-
-function Countdown({ targetIso }: { targetIso: string }) {
-  const [diff, setDiff] = useState(0)
-  useEffect(() => {
-    const target = new Date(targetIso).getTime()
-    const tick = () => setDiff(Math.max(0, Math.floor((target - Date.now()) / 1000)))
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [targetIso])
-  if (diff <= 0) return <span className="text-green-500 font-bold text-2xl">Hora de sair!</span>
-  const h = Math.floor(diff / 3600)
-  const m = Math.floor((diff % 3600) / 60)
-  const s = diff % 60
-  return (
-    <span className="font-mono font-bold text-3xl text-blue-700 tracking-widest">
-      {h > 0 && `${h}:`}{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}
-    </span>
-  )
-}
-
-function StatusBadge({ status }: { status: string }) {
-  if (status === 'embarcou') return <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">✒ Embarcou</span>
-  if (status === 'ausente') return <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-medium">✗ Ausente</span>
-  return <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Aguardando</span>
-}
-
-export default function MotoristaPage() {
-  const supabase = createClientComponentClient()
-  const router = useRouter()
-  const [user, setUser] = useState<any>(null)
-  const [nomePerfil, setNomePerfil] = useState('')
-  const [plan, setPlan] = useState<Plan | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [gpsAtivo, setGpsAtivo] = useState(false)
-  const [atualizando, setAtualizando] = useState(false)
-  const [modalProblema, setModalProblema] = useState(false)
-  const [formProblema, setFormProblema] = useState({ tipo: 'outro', urgencia: 'normal', descricao: '' })
-  const [enviandoProbl, setEnviandoProbl] = useState(false)
-  const posAtual = useRef<GeolocationPosition | null>(null)
-  const ultimoGps = useRef(0)
-  const [salvandoLoc, setSalvandoLoc] = useState<Record<string, 'loading' | 'ok' | 'err'>>({})
-
-  const carregar = useCallback(async (uid?: string) => {
-    const userId = uid || user?.id
-    if (!userId) return
+export default function MotoristaPage(){
+  const sb=createClientComponentClient()
+  const router=useRouter()
+  const[user,setUser]=useState<any>(null)
+  const[nomePerfil,setNomePerfil]=useState('')
+  const[plan,setPlan]=useState<Plan|null>(null)
+  const[loading,setLoading]=useState(true)
+  const[gpsAtivo,setGpsAtivo]=useState(false)
+  const[atualizando,setAtualizando]=useState<Record<string,boolean>>({})
+  const[ultimoCmd,setUltimoCmd]=useState<{passId:string;statusAnt:string}|null>(null)
+  const[salvandoLoc,setSalvandoLoc]=useState<Record<string,boolean>>({})
+  const[modalProblema,setModalProblema]=useState(false)
+  const[formProblema,setFormProblema]=useState({tipo:'outro',urgencia:'normal',descricao:''})
+  const[enviandoProbl,setEnviandoProbl]=useState(false)
+  const posAtual=useRef<GeolocationPosition|null>(null)
+  const carregar=useCallback(async(uid?:string)=>{
+    const userId=uid||user?.id
+    if(!userId){setLoading(false);return}
     const d=new Date();const hoje=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')
     let data:any=null
     try{
-    const {data:d} = await supabase
-      .from('route_plans')
-      .select(`id, data, status,veiculo:veiculos(id,placa,modelo),motorista:profiles(id,nome),route_legs(id,horario_saida,ordem,status,est_departure_at,est_hospital_at,est_return_at,est_outbound_min,est_return_min,hospital:hospitais(id,nome,cidade,lat,lng),leg_passengers(id,ordem,status,est_pickup_at,paciente:pacientes(id,nome,endereco,bairro,lat,lng)))`)
-      .eq('data', hoje)
-      .eq('motorista_id', userId)
-      .in('status', ['draft', 'active'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    if (d) { const data=d;
-      const legsOrdenados: Leg[] = ((data.route_legs as any[]) || [])
-        .sort((a, b) => a.ordem - b.ordem)
-        .map((l: any) => ({ ...l, passengers: (l.leg_passengers || []).sort((a: any, b: any) => a.ordem - b.ordem) }))
-      setPlan({ ...(data as any), legs: legsOrdenados })
-    } else { setPlan(null) }
+      const{data:d2}=await sb.from('route_plans').select(`id,data,status,veiculo:veiculos(id,placa,modelo,capacidade),motorista:profiles(id,nome),route_legs(id,horario_saida,ordem,status,est_departure_at,est_hospital_at,est_return_at,est_outbound_min,est_return_min,hospital:hospitais(id,nome,cidade,lat,lng),leg_passengers(id,ordem,status,est_pickup_at,paciente:pacientes(id,nome,endereco,bairro,lat,lng)))`).eq('data',hoje).eq('motorista_id',userId).in('status',['draft','active','returning']).order('created_at',{ascending:false}).limit(1).maybeSingle()
+      data=d2
     }catch(e){console.error('carregar error:',e)}
+    if(data){
+      const legs:Leg[]=((data.route_legs as any[])||[]).sort((a:any,b:any)=>a.ordem-b.ordem).map((l:any)=>({...l,passengers:(l.leg_passengers||[]).sort((a:any,b:any)=>a.ordem-b.ordem)}))
+      setPlan({...(data as any),legs})
+    }else{setPlan(null)}
     setLoading(false)
-  }, [supabase, user?.id])
-
-  useEffect(() => {
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return
+  },[sb,user?.id])
+  useEffect(()=>{
+    sb.auth.getUser().then(async({data:{user}})=>{
+      if(!user){setLoading(false);return}
       setUser(user)
-      const { data: perfil } = await supabase.from('profiles').select('nome').eq('id', user.id).single()
-      setNomePerfil((perfil as any).nome || '')
+      const{data:p}=await sb.from('profiles').select('nome').eq('id',user.id).single()
+      if(p)setNomePerfil(p.nome||'')
       carregar(user.id)
     })
-  }, [supabase, carregar])
-
-  useEffect(() => {
-    if (!user) return
-    const ch = supabase.channel('motorista-plan-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'leg_passengers' }, () => carregar())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'route_legs' }, () => carregar())
-      .subscribe()
-    return () => { supabase.removeChannel(ch) }
-  }, [supabase, user, carregar])
-
-  useEffect(() => {
-    if (!user) return
-    const watchId = navigator.geolocation.watchPosition(async pos => {
-      posAtual.current = pos
-      const now = Date.now()
-      if (now - ultimoGps.current < 5000) return
-      ultimoGps.current = now
-      setGpsAtivo(true)
-      await supabase.from('motorista_localizacao').upsert({
-        motorista_id: user.id, lat: pos.coords.latitude,
-        lng: pos.coords.longitude, atualizado_em: new Date().toISOString(),
-      }, { onConflict: 'motorista_id' })
-    }, () => setGpsAtivo(false), { enableHighAccuracy: true, maximumAge: 5000 })
-    return () => navigator.geolocation.clearWatch(watchId)
-  }, [user, supabase])
-
-  async function setLegStatus(legId: string, status: string) {
-    setAtualizando(true)
-    await supabase.from('route_legs').update({ status }).eq('id', legId)
-    await carregar()
-    setAtualizando(false)
+  },[sb,carregar])
+  useEffect(()=>{
+    if(!user)return
+    const ch=sb.channel('motorista-rt').on('postgres_changes',{event:'*',schema:'public',table:'leg_passengers'},()=>carregar()).on('postgres_changes',{event:'*',schema:'public',table:'route_legs'},()=>carregar()).on('postgres_changes',{event:'*',schema:'public',table:'route_plans'},()=>carregar()).subscribe()
+    return()=>{sb.removeChannel(ch)}
+  },[sb,user,carregar])
+  useEffect(()=>{
+    if(!navigator.geolocation)return
+    const id=navigator.geolocation.watchPosition(pos=>{posAtual.current=pos;setGpsAtivo(true)},()=>setGpsAtivo(false),{enableHighAccuracy:true,maximumAge:10000})
+    return()=>navigator.geolocation.clearWatch(id)
+  },[])
+  const setStatus=async(passId:string,newStatus:string,oldStatus:string)=>{
+    setAtualizando(p=>({...p,[passId]:true}))
+    setUltimoCmd({passId,statusAnt:oldStatus})
+    await sb.from('leg_passengers').update({status:newStatus}).eq('id',passId)
+    setAtualizando(p=>({...p,[passId]:false}))
+    carregar()
   }
-
-  async function setPassStatus(passId: string, status: string) {
-    setAtualizando(true)
-    await supabase.from('leg_passengers').update({ status }).eq('id', passId)
-    await carregar()
-    setAtualizando(false)
+  const desfazer=async()=>{
+    if(!ultimoCmd)return
+    setAtualizando(p=>({...p,[ultimoCmd.passId]:true}))
+    await sb.from('leg_passengers').update({status:ultimoCmd.statusAnt}).eq('id',ultimoCmd.passId)
+    setAtualizando(p=>({...p,[ultimoCmd.passId]:false}))
+    setUltimoCmd(null)
+    carregar()
   }
-
-  async function salvarLocalizacaoPaciente(pacienteId: string, nomePaciente: string) {
-    if (!user) return
-    const pos = posAtual.current
-    if (!pos) {
-      setSalvandoLoc(prev => ({ ...prev, [pacienteId]: 'loading' }))
-      navigator.geolocation.getCurrentPosition(
-        async (p) => { await gravarCoordenadas(pacienteId, p.coords.latitude, p.coords.longitude) },
-        () => {
-          setSalvandoLoc(prev => ({ ...prev, [pacienteId]: 'err' }))
-          setTimeout(() => setSalvandoLoc(prev => { const n = { ...prev }; delete n[pacienteId]; return n }), 3000)
-        },
-        { enableHighAccuracy: true, timeout: 8000 }
-      )
-      return
-    }
-    await gravarCoordenadas(pacienteId, pos.coords.latitude, pos.coords.longitude)
+  const salvarLoc=async(passId:string,pacId:string)=>{
+    if(!posAtual.current)return alert('GPS nao disponivel')
+    setSalvandoLoc(p=>({...p,[passId]:true}))
+    const{latitude:lat,longitude:lng}=posAtual.current.coords
+    await sb.from('pacientes').update({lat,lng}).eq('id',pacId)
+    setSalvandoLoc(p=>({...p,[passId]:false}))
+    alert('Localizacao salva!')
   }
-
-  async function gravarCoordenadas(pacienteId: string, lat: number, lng: number) {
-    setSalvandoLoc(prev => ({ ...prev, [pacienteId]: 'loading' }))
-    const { error } = await supabase
-      .from('pacientes')
-      .update({ lat, lng, location_source: 'driver_gps', location_captured_by: user.id, location_captured_at: new Date().toISOString() })
-      .eq('id', pacienteId)
-    if (error) {
-      setSalvandoLoc(prev => ({ ...prev, [pacienteId]: 'err' }))
-      setTimeout(() => setSalvandoLoc(prev => { const n = { ...prev }; delete n[pacienteId]; return n }), 3000)
-    } else {
-      setSalvandoLoc(prev => ({ ...prev, [pacienteId]: 'ok' }))
-      await carregar()
-      setTimeout(() => setSalvandoLoc(prev => { const n = { ...prev }; delete n[pacienteId]; return n }), 3000)
-    }
+  const setRotaStatus=async(s:string)=>{
+    if(!plan)return
+    await sb.from('route_plans').update({status:s}).eq('id',plan.id)
+    carregar()
   }
-
-  async function enviarProblema() {
-    if (!plan || !formProblema.descricao.trim()) return
+  const enviarProblema=async()=>{
+    if(!plan||!user)return
     setEnviandoProbl(true)
-    await supabase.from('manutencao_veicular').insert({
-      veiculo_id: (plan.veiculo as any).id, motorista_id: user.id,
-      tipo: formProblema.tipo, urgencia: formProblema.urgencia, descricao: formProblema.descricao,
-    })
-    setEnviandoProbl(false)
-    setModalProblema(false)
-    setFormProblema({ tipo: 'outro', urgencia: 'normal', descricao: '' })
-    alert('✅ Problema reportado ao gestor.')
+    await sb.from('route_problems').insert({plan_id:plan.id,motorista_id:user.id,...formProblema})
+    setEnviandoProbl(false);setModalProblema(false)
+    alert('Problema reportado!')
   }
-
-  async function logout() {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
-
-  const legs = plan?.legs || []
-  const todoConcluido = legs.length > 0 && legs.every(l => l.status === 'concluida')
-  const legAtual = legs.find(l => l.status !== 'concluida') ?? null
-  const legIdx = legAtual ? legs.indexOf(legAtual) : -1
-  const proxLeg = legAtual && legIdx < legs.length - 1 ? legs[legIdx + 1] : null
-  const passeiroAtual = legAtual?.passengers.find(p => p.status === 'aguardando') ?? null
-  const todosHandled = (legAtual?.passengers.length ?? 0) > 0 && legAtual!.passengers.every(p => p.status !== 'aguardando')
-
-  function Header() {
-    return (
-      <div className="bg-blue-800 text-white px-4 py-3 flex items-center justify-between">
+  const leg=plan?.legs?.[0]
+  const totalPax=leg?.passengers?.length||0
+  const embarcados=leg?.passengers?.filter(p=>p.status==='embarcou').length||0
+  if(loading)return(
+    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-4">
+      <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"/>
+      <p className="text-gray-400 text-sm">Carregando plano...</p>
+    </div>
+  )
+  const Header=()=>(
+    <header className="bg-gray-900 border-b border-gray-700/50 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+      <div className="flex items-center gap-3">
+        <span className="text-white font-bold text-lg tracking-wide">Smart<span className="text-blue-400">TFD</span></span>
+        <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">Motorista</span>
+      </div>
+      <div className="flex items-center gap-3 text-xs">
+        <span className={`flex items-center gap-1 ${gpsAtivo?'text-green-400':'text-red-400'}`}>
+          <span className={`w-2 h-2 rounded-full ${gpsAtivo?'bg-green-400 animate-pulse':'bg-red-400'}`}/>
+          {gpsAtivo?'GPS ativo':'sem GPS'}
+        </span>
+        <span className="text-gray-300">{nomePerfil}</span>
+        <button onClick={()=>sb.auth.signOut().then(()=>router.push('/login'))} className="text-gray-500 hover:text-red-400 transition-colors">Sair</button>
+      </div>
+    </header>
+  )
+  if(!plan||!leg)return(
+    <div className="min-h-screen bg-gray-950 flex flex-col">
+      <Header/>
+      <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
+        <div className="w-20 h-20 rounded-full bg-gray-800 flex items-center justify-center text-4xl">🗺️</div>
+        <div className="text-center">
+          <h2 className="text-white font-bold text-xl mb-2">Sem plano para hoje</h2>
+          <p className="text-gray-400 text-sm">Nenhuma rota foi atribuida a voce.</p>
+        </div>
+        <button onClick={()=>carregar()} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition-colors">Verificar novamente</button>
+      </div>
+    </div>
+  )
+  const allDone=leg.passengers.every(p=>['liberado','desistiu','ausente'].includes(p.status))
+  return(
+    <div className="min-h-screen bg-gray-950 flex flex-col pb-32">
+      <Header/>
+      {/* Route Status Banner */}
+      <div className={`px-4 py-2 text-xs font-semibold flex items-center justify-between ${plan.status==='active'?'bg-green-900/50 text-green-300':plan.status==='returning'?'bg-orange-900/50 text-orange-300':'bg-blue-900/50 text-blue-300'}`}>
+        <span>{plan.status==='draft'?'🔵 Aguardando inicio':plan.status==='active'?'🟢 Rota em andamento':plan.status==='returning'?'🟠 Retornando a base':'✅ Rota finalizada'}</span>
+        <span className="opacity-70">{plan.veiculo?.placa}</span>
+      </div>
+      {/* Main Panel */}
+      <div className="p-4 space-y-4">
+        {/* Departure Card */}
+        <div className="bg-gray-900 rounded-2xl border border-gray-700/50 p-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Saida da garagem</p>
+              {leg.est_departure_at?<Countdown targetIso={leg.est_departure_at}/>:<div className="text-4xl font-bold font-mono text-blue-300">{fmtHora(null,leg.horario_saida)}</div>}
+              {leg.est_outbound_min&&<p className="text-gray-500 text-xs mt-1">~{leg.est_outbound_min} min de viagem</p>}
+            </div>
+            <div className="text-right">
+              <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Veiculo</p>
+              <p className="text-white font-bold text-lg">{plan.veiculo?.modelo||plan.veiculo?.placa}</p>
+              <p className="text-gray-400 text-xs">{plan.veiculo?.placa}</p>
+              <div className="mt-1 flex items-center justify-end gap-1">
+                <span className="text-blue-400 text-sm font-bold">{embarcados}</span>
+                <span className="text-gray-500 text-xs">/ {totalPax} pax</span>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-gray-700/50 flex items-center justify-between">
+            <div>
+              <p className="text-gray-500 text-xs">Local de consulta</p>
+              <p className="text-white text-sm font-medium">{leg.hospital?.nome}</p>
+              <p className="text-gray-400 text-xs">{leg.hospital?.cidade}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-gray-500 text-xs">Horario previsto</p>
+              <p className="text-blue-300 text-lg font-bold font-mono">{fmtHora(leg.est_hospital_at,leg.horario_saida)}</p>
+            </div>
+          </div>
+        </div>
+        {/* Patients */}
         <div>
-          <span className="font-bold text-sm">SmartTFD</span>
-          <span className="text-blue-300 text-xs ml-2">Motorista</span>
-        </div>
-        <div className="flex items-center gap-3 text-xs">
-          <span className={gpsAtivo ? 'text-green-300' : 'text-gray-400'}>
-            {gpsAtivo ? '📍 GPS ativo' : '📍 sem GPS'}
-          </span>
-          {nomePerfil && <span className="text-blue-200">{nomePerfil}</span>}
-          <button onClick={logout} className="text-blue-300 hover:text-white text-xs border border-blue-600 px-2 py-0.5 rounded-md transition-colors">Sair</button>
-        </div>
-      </div>
-    )
-  }
-
-  function BotaoLocalizacao({ passenger }: { passenger: Passenger }) {
-    const estado = salvandoLoc[passenger.paciente.id]
-    const temGps = !!passenger.paciente.lat
-    if (estado === 'loading') return <span className="text-xs bg-blue-50 text-blue-500 px-2 py-1 rounded-lg animate-pulse">📍 Salvando…</span>
-    if (estado === 'ok') return <span className="text-xs bg-green-50 text-green-600 px-2 py-1 rounded-lg">✅ Local salvo!</span>
-    if (estado === 'err') return <span className="text-xs bg-red-50 text-red-600 px-2 py-1 rounded-lg">❌ Sem GPS</span>
-    return (
-      <button onClick={() => salvarLocalizacaoPaciente(passenger.paciente.id, passenger.paciente.nome)}
-        className={`text-xs px-2 py-1 rounded-lg transition-colors ${temGps ? 'bg-green-50 text-green-600 hover:bg-green-100' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
-        {temGps ? '🍍 Atualizar local' : '🍍 Salvar local'}
-      </button>
-    )
-  }
-
-  if (!loading && !plan) return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Header />
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center gap-4">
-        <div className="text-5xl">🋋</div>
-        <h2 className="font-bold text-gray-700 text-lg">Sem plano para hoje</h2>
-        <p className="text-gray-400 text-sm">Aguarde o gestor criar e ativar o plano do dia.</p>
-        <button onClick={() => carregar()} className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">🔄 Verificar novamente</button>
-      </div>
-    </div>
-  )
-
-  if (!loading && todoConcluido) return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Header />
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center gap-4">
-        <div className="text-5xl">🏁</div>
-        <h2 className="font-bold text-gray-700 text-lg">Dia encerrado!</h2>
-        <p className="text-gray-400 text-sm">
-          Você concluiu {legs.length} viagem(ns) hoje.<br /> Bom descanso! 👏
-        </p>
-        <div className="bg-white rounded-xl shadow p-4 text-left w-full max-w-xs space-y-2 mt-2">
-          {legs.map((l, i) => (
-            <div key={l.id} className="flex items-center gap-2 text-sm">
-              <span className="text-green-500">✒</span>
-              <span className="text-gray-700">Viagem {i + 1} — {l.hospital.nome}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-
-  if (loading) return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Header />
-      <div className="flex-1 flex items-center justify-center text-gray-400">Carregando plano…</div>
-    </div>
-  )
-
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col pb-24">
-      <Header />
-      {legAtual && (
-        <div className="bg-blue-700 text-white px-4 py-2 text-sm flex items-center justify-between">
-          <span className="font-semibold">Viagem {legIdx + 1} de {legs.length} · {legAtual.hospital.nome}</span>
-          <span className="text-blue-200 text-xs capitalize">{legAtual.status.replace('_', ' ')}</span>
-        </div>
-      )}
-      <div className="flex-1 p-4 space-y-4">
-        {legAtual?.status === 'aguardando' && (
-          <>
-            <div className="bg-white rounded-2xl shadow p-5 text-center space-y-3">
-              <div className="text-gray-400 text-sm">{legIdx === 0 ? 'Primeira saída em' : 'Próxima saída em'}</div>
-              {legAtual.est_departure_at ? (
-                <Countdown targetIso={legAtual.est_departure_at} />
-              ) : (
-                <div className="text-2xl font-bold text-blue-700">{fmtHora(null, legAtual.horario_saida)}</div>
-              )}
-              <div className="text-sm text-gray-600">🏥 {legAtual.hospital.nome}{legAtual.hospital.cidade && ` — ${legAtual.hospital.cidade}`}</div>
-              {legAtual.est_outbound_min && <div className="text-xs text-gray-400">~{legAtual.est_outbound_min} min de viagem</div>}
-              <button onClick={() => setLegStatus(legAtual.id, 'em_andamento')} disabled={atualizando}
-                className="w-full mt-2 bg-blue-600 text-white py-3 rounded-xl font-bold text-base hover:bg-blue-700 active:scale-95 transition-transform disabled:opacity-50">
-                🚀 Iniciar Viagem
-              </button>
-            </div>
-            <div className="bg-white rounded-2xl shadow p-4">
-              <h3 className="font-semibold text-gray-700 text-sm mb-3">👥 {legAtual.passengers.length} parada(s) nesta viagem</h3>
-              <div className="space-y-2">
-                {legAtual.passengers.map((p, i) => (
-                  <div key={p.id} className="flex items-start gap-3 text-sm">
-                    <span className="w-5 h-5 rounded-full bg-gray-100 text-gray-500 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
-                    <div>
-                      <div className="font-medium text-gray-800">{p.paciente.nome}</div>
-                      {p.paciente.endereco && <div className="text-xs text-gray-400">{[p.paciente.endereco, p.paciente.bairro].filter(Boolean).join(', ')}</div>}
-                      {p.est_pickup_at && <div className="text-xs text-blue-600">🕐 {fmtHora(p.est_pickup_at)}</div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
-        {legAtual?.status === 'em_andamento' && (
-          <>
-            {passeiroAtual && !todosHandled && (
-              <div className="bg-blue-600 text-white rounded-2xl shadow p-5 space-y-3">
-                <div className="text-blue-200 text-xs font-medium uppercase tracking-wide">Próxima parada</div>
-                <div className="font-bold text-xl">{passeiroAtual.paciente.nome}</div>
-                {(passeiroAtual.paciente.endereco || passeiroAtual.paciente.bairro) && (
-                  <div className="text-blue-100 text-sm">📍 {[passeiroAtual.paciente.endereco, passeiroAtual.paciente.bairro].filter(Boolean).join(', ')}</div>
-                )}
-                {passeiroAtual.est_pickup_at && <div className="text-blue-200 text-sm">🕐 Estimado: {fmtHora(passeiroAtual.est_pickup_at)}</div>}
-                <div className="flex gap-2 mt-2">
-                  <a href={mapsUrl(passeiroAtual.paciente)} target="_blank" rel="noopener noreferrer"
-                    className="flex-1 bg-white/20 text-white text-center py-2.5 rounded-xl text-sm font-medium hover:bg-white/30 active:scale-95 transition-transform">
-                     🗺️ Abrir Maps
-                  </a>
-                  <button onClick={() => setPassStatus(passeiroAtual.id, 'embarcou')} disabled={atualizando}
-                    className="flex-1 bg-green-500 text-white py-2.5 rounded-xl text-sm font-bold hover:bg-green-600 active:scale-95 transition-transform disabled:opacity-50">
-                    ✅ Embarcou
-                  </button>
-                  <button onClick={() => setPassStatus(passeiroAtual.id, 'ausente')} disabled={atualizando}
-                    className="flex-1 bg-red-400 text-white py-2.5 rounded-xl text-sm font-bold hover:bg-red-500 active:scale-95 transition-transform disabled:opacity-50">
-                    ✗ Ausente
-                  </button>
-                </div>
-                <div className="pt-1 border-t border-white/20">
-                  <div className="text-blue-200 text-xs mb-1.5">Você está em frente à casa do paciente?</div>
-                  <BotaoLocalizacao passenger={passeiroAtual} />
-                </div>
-              </div>
-            )}
-            <div className="bg-white rounded-2xl shadow p-4">
-              <h3 className="font-semibold text-gray-700 text-sm mb-3">Todas as paradas</h3>
-              <div className="space-y-3">
-                {legAtual.passengers.map((p, i) => {
-                  const isCurrent = p.id === passeiroAtual?.id
-                  return (
-                    <div key={p.id} className={`flex items-start gap-3 p-3 rounded-xl transition-colors ${isCurrent ? 'bg-blue-50 border border-blue-200' : ''} ${p.status === 'embarcou' ? 'opacity-60' : ''} ${p.status === 'ausente' ? 'opacity-40' : ''}`}>
-                      <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-bold ${p.status === 'embarcou' ? 'bg-green-100 text-green-700' : p.status === 'ausente' ? 'bg-red-100 text-red-600' : isCurrent ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                        {p.status === 'embarcou' ? '✒' : p.status === 'ausente' ? '✗' : i + 1}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm text-gray-800">{p.paciente.nome}</div>
-                        {(p.paciente.endereco || p.paciente.bairro) && <div className="text-xs text-gray-400 truncate">{[p.paciente.endereco, p.paciente.bairro].filter(Boolean).join(', ')}</div>}
-                        {p.est_pickup_at && <div className="text-xs text-blue-600">🕐 {fmtHora(p.est_pickup_at)}</div>}
-                        <div className="mt-1.5"><BotaoLocalizacao passenger={p} /></div>
+          <p className="text-gray-500 text-xs uppercase tracking-wider mb-3 px-1">Pacientes ({totalPax})</p>
+          <div className="space-y-3">
+            {leg.passengers.map((pass,idx)=>{
+              const sc=STATUS_CONFIG[pass.status]||STATUS_CONFIG['aguardando']
+              const pac=pass.paciente
+              const busy=atualizando[pass.id]
+              return(
+                <div key={pass.id} className={`rounded-2xl border p-4 transition-all ${sc.bg}`}>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-blue-600/30 border border-blue-500/30 flex items-center justify-center text-blue-300 font-bold text-sm">{idx+1}</div>
+                      <div>
+                        <p className="text-white font-semibold text-sm">{pac?.nome||'Paciente'}</p>
+                        <span className={`text-xs font-medium ${sc.color}`}>{sc.label}</span>
                       </div>
-                      <StatusBadge status={p.status} />
                     </div>
-                  )
-                })}
-              </div>
-              {todosHandled && (
-                <button onClick={() => setLegStatus(legAtual.id, 'no_hospital')} disabled={atualizando}
-                  className="w5full mt-4 bg-red-600 text-white py-3 rounded-xl font-bold text-base hover:bg-red-700 active:scale-95 transition-transform disabled:opacity-50">
-                  🏥 Cheguei ao Hospital
-                </button>
-              )}
-            </div>
-          </>
-        )}
-
-        {legAtual?.status === 'no_hospital' && (
-          <div className="bg-white rounded-2xl shadow p-5 space-y-4">
-            <div className="text-center">
-              <div className="text-4xl mb-2">🏥</div>
-              <h2 className="font-bold text-gray-800 text-lg">{legAtual.hospital.nome}</h2>
-              {legAtual.est_hospital_at && <div className="text-sm text-gray-400">Chegada: {fmtHora(legAtual.est_hospital_at)}</div>}
-            </div>
-            {legAtual.passengers.filter(p => p.status === 'embarcou').length > 0 && (
-              <div className="space-y-1.5">
-                <div className="text-xs text-gray-400 font-medium uppercase tracking-wide">Para desembarcar</div>
-                {legAtual.passengers.filter(p => p.status === 'embarcou').map(p => (
-                  <div key={p.id} className="flex items-center gap-2 text-sm bg-green-50 rounded-lg px-3 py-2">
-                    <span className="text-green-600">✒</span><span className="text-gray-700">{p.paciente.nome}</span>
+                    <a href={mapsUrl(pac)} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-lg px-2 py-1">Ver mapa</a>
                   </div>
-                ))}
-              </div>
-            )}
-            {legAtual.passengers.filter(p => p.status === 'ausente').length > 0 && (
-              <div className="space-y-1.5">
-                <div className="text-xs text-gray-400 font-medium uppercase tracking-wide">Ausentes</div>
-                {legAtual.passengers.filter(p => p.status === 'ausente').map(p => (
-                  <div key={p.id} className="flex items-center gap-2 text-sm bg-red-50 rounded-lg px-3 py-2">
-                    <span className="text-red-500">✗</span><span className="text-gray-500">{p.paciente.nome}</span>
+                  <div className="text-xs text-gray-400 mb-3 space-y-0.5">
+                    {pac?.bairro&&<p>📍 {pac.bairro}</p>}
+                    {pac?.endereco&&<p>🏠 {pac.endereco}</p>}
+                    {pass.est_pickup_at&&<p>⏰ Pickup: {fmtHora(pass.est_pickup_at)}</p>}
                   </div>
-                ))}
-              </div>
-            )}
-            <button onClick={() => setLegStatus(legAtual.id, 'retornando')} disabled={atualizando}
-              className="w5full bg-blue-600 text-white py-3 rounded-xl font-bold text-base hover:bg-blue-700 active:scale-95 transition-transform disabled:opacity-50">
-              🔄 Saindo para Retorno
-            </button>
+                  {/* Action buttons */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button disabled={busy||pass.status==='embarcou'} onClick={()=>setStatus(pass.id,'embarcou',pass.status)} className="py-2 rounded-xl text-xs font-medium bg-green-600/20 border border-green-500/30 text-green-300 hover:bg-green-600/40 disabled:opacity-40 transition-all">✓ Embarcou</button>
+                    <button disabled={busy} onClick={()=>salvarLoc(pass.id,pac?.id||'')} className={`py-2 rounded-xl text-xs font-medium bg-blue-600/20 border border-blue-500/30 text-blue-300 hover:bg-blue-600/40 disabled:opacity-40 transition-all ${salvandoLoc[pass.id]?'animate-pulse':''}`}>📍 Salvar GPS</button>
+                    <button disabled={busy||pass.status==='liberado'} onClick={()=>setStatus(pass.id,'liberado',pass.status)} className="py-2 rounded-xl text-xs font-medium bg-teal-600/20 border border-teal-500/30 text-teal-300 hover:bg-teal-600/40 disabled:opacity-40 transition-all">🏥 Liberado</button>
+                    <button disabled={busy} onClick={()=>setStatus(pass.id,'outro_motorista',pass.status)} className="py-2 rounded-xl text-xs font-medium bg-orange-600/20 border border-orange-500/30 text-orange-300 hover:bg-orange-600/40 disabled:opacity-40 transition-all">🚗 Outro Mot.</button>
+                    <button disabled={busy} onClick={()=>setStatus(pass.id,'desistiu',pass.status)} className="py-2 rounded-xl text-xs font-medium bg-red-600/20 border border-red-500/30 text-red-300 hover:bg-red-600/40 disabled:opacity-40 col-span-2 transition-all">✕ Desistiu</button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        )}
-
-        {legAtual?.status === 'retornando' && (
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl shadow p-5 text-center space-y-3">
-              <div className="text-4xl">🔄</div>
-              <h2 className="font-bold text-gray-800">Retornando à cidade</h2>
-              {legAtual.est_return_at && (
-                <>
-                  <div className="text-xs text-gray-400">Chegada prevista</div>
-                  <div className="text-3xl font-bold text-blue-700 font-mono">{fmtHora(legAtual.est_return_at)}</div>
-                </>
-              )}
-              {legAtual.est_return_min && <div className="text-sm text-gray-400">~{legAtual.est_return_min} min de viagem</div>}
-              <button onClick={() => setLegStatus(legAtual.id, 'concluida')} disabled={atualizando}
-                className="w-full mt-2 bg-green-600 text-white py-3 rounded-xl font-bold text-base hover:bg-green-700 active:scale-95 transition-transform disabled:opacity-50">
-                🏠 Cheguei de Volta
-              </button>
-            </div>
-            {proxLeg && (
-              <div className="bg-blue-50 rounded-2xl p-4 space-y-2 border border-blue-100">
-                <div className="text-xs text-blue-500 font-semibold uppercase tracking-wide">Próxima viagem (Viagem {legIdx + 2})</div>
-                <div className="font-semibold text-gray-800 text-sm">🏥 {proxLeg.hospital.nome}</div>
-                <div className="text-xs text-gray-500">Saída: {fmtHora(proxLeg.est_departure_at, proxLeg.horario_saida)}{proxLeg.est_outbound_min && ` · ~${proxLeg.est_outbound_min} min`}</div>
-                <div className="text-xs text-gray-400">{proxLeg.passengers.length} passageiro(s)</div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {legs.filter(l => l.status === 'concluida').length > 0 && legAtual && (
-          <div className="bg-white rounded-2xl shadow p-4">
-            <h3 className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-2">Concluídas</h3>
-            {legs.filter(l => l.status === 'concluida').map((l, i) => (
-              <div key={l.id} className="flex items-center gap-2 text-sm py-1.5 border-b last:border-0">
-                <span className="text-green-500 text-base">✒</span>
-                <span className="text-gray-600">Viagem {i + 1} — {l.hospital.nome}</span>
-                {l.est_return_at && <span className="ml-auto text-xs text-gray-400">{fmtHora(l.est_return_at)}</span>}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {plan && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-3">
-          <button onClick={() => setModalProblema(true)}
-            className="w-full border border-orange-300 text-orange-600 py-2.5 rounded-xl text-sm font-medium hover:bg-orange-50 active:scale-95 transition-transform">
-            🔧 Reportar problema no veículo
-          </button>
         </div>
-      )}
-
-      {modalProblema && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
-          <div className="bg-white w-full rounded-t-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-gray-800">🔧 Problema no Veículo</h3>
-              <button onClick={() => setModalProblema(false)} className="text-gray-400 text-xl">┕</button>
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Tipo</label>
-              <select value={formProblema.tipo} onChange={e => setFormProblema(f => ({ ...f, tipo: e.target.value }))} className="w-full border rounded-xl px-3 py-2.5 text-sm">
-                <option value="pneu">Pneu</option>
-                <option value="motor">Motor</option>
-                <option value="freio">Freio</option>
-                <option value="ar-cond">Ar-condicionado</option>
-                <option value="carroceria">Carroceria</option>
-                <option value="outro">Outro</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Urgência</label>
-              <div className="grid grid-cols-4 gap-2">
-                {(['baixa', 'normal', 'alta', 'critica'] as const).map(u => (
-                  <button key={u} onClick={() => setFormProblema(f => ({ ...f, urgencia: u }))}
-                    className={`py-2 rounded-xl text-xs font-medium capitalize transition-colors ${formProblema.urgencia === u ? u === 'critica' ? 'bg-red-600 text-white' : u === 'alta' ? 'bg-orange-500 text-white' : u === 'normal' ? 'bg-yellow-400 text-white' : 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
-                    {u}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Descrição</label>
-              <textarea value={formProblema.descricao} rows={3} onChange={e => setFormProblema(f => ({ ...f, descricao: e.target.value }))} placeholder="Descreva o problema…" className="w5full border rounded-xl px-3 py-2.5 text-sm resize-none" />
-            </div>
-            <button onClick={enviarProblema} disabled={enviandoProbl || !formProblema.descricao.trim()} className="w5full bg-orange-500 text-white py-3 rounded-xl font-bold disabled:opacity-40 active:scale-95 transition-transform">
-              {enviandoProbl ? 'Enviando…' : '🌄 Reportar ao Gestor'}
-            </button>
+      </div>
+      {/* Fixed Footer */}
+      <div className="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur border-t border-gray-700/50 p-3 space-y-2">
+        <div className="grid grid-cols-3 gap-2">
+          <button disabled={plan.status!=='draft'} onClick={()=>setRotaStatus('active')} className="py-3 rounded-xl text-xs font-bold bg-green-600 hover:bg-green-700 text-white disabled:opacity-40 transition-all">▶ Iniciar Rota</button>
+          <button disabled={plan.status!=='active'} onClick={()=>setRotaStatus('returning')} className="py-3 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-40 transition-all">↩ Retornar Base</button>
+          <button disabled={plan.status==='completed'||!allDone} onClick={()=>setRotaStatus('completed')} className="py-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 transition-all">✓ Finalizar</button>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={()=>setModalProblema(true)} className="py-2 rounded-xl text-xs font-medium bg-red-900/40 border border-red-500/30 text-red-300 hover:bg-red-900/60 transition-all">🔧 Reportar Problema</button>
+          <button disabled={!ultimoCmd} onClick={desfazer} className="py-2 rounded-xl text-xs font-medium bg-gray-700/60 border border-gray-600/30 text-gray-300 hover:bg-gray-700 disabled:opacity-40 transition-all">↩ Desfazer</button>
+        </div>
+      </div>
+      {/* Problema Modal */}
+      {modalProblema&&(
+        <div className="fixed inset-0 bg-black/80 flex items-end z-50" onClick={()=>setModalProblema(false)}>
+          <div className="bg-gray-900 rounded-t-3xl w-full p-6 space-y-4" onClick={e=>e.stopPropagation()}>
+            <h3 className="text-white font-bold text-lg">Reportar Problema</h3>
+            <select value={formProblema.tipo} onChange={e=>setFormProblema(p=>({...p,tipo:e.target.value}))} className="w-full bg-gray-800 text-white rounded-xl px-4 py-3 text-sm border border-gray-700">
+              <option value="mecanico">Problema mecanico</option>
+              <option value="acidente">Acidente</option>
+              <option value="pneu">Pneu furado</option>
+              <option value="combustivel">Sem combustivel</option>
+              <option value="outro">Outro</option>
+            </select>
+            <select value={formProblema.urgencia} onChange={e=>setFormProblema(p=>({...p,urgencia:e.target.value}))} className="w-full bg-gray-800 text-white rounded-xl px-4 py-3 text-sm border border-gray-700">
+              <option value="baixa">Urgencia baixa</option>
+              <option value="normal">Urgencia normal</option>
+              <option value="alta">URGENCIA ALTA</option>
+            </select>
+            <textarea value={formProblema.descricao} onChange={e=>setFormProblema(p=>({...p,descricao:e.target.value}))} placeholder="Descreva o problema..." rows={3} className="w-full bg-gray-800 text-white rounded-xl px-4 py-3 text-sm border border-gray-700 resize-none"/>
+            <button disabled={enviandoProbl} onClick={enviarProblema} className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold disabled:opacity-50">{enviandoProbl?'Enviando...':'Enviar Alerta'}</button>
           </div>
         </div>
       )}
