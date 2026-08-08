@@ -16,6 +16,51 @@ function hav(a1:number,g1:number,a2:number,g2:number){const R=6371,dA=(a2-a1)*Ma
 function minToTime(m:number){const t=Math.max(0,m);return String(Math.floor(t/60)%24).padStart(2,'0')+':'+String(t%60).padStart(2,'0')}
 function timeToMin(t:string){const[h,m]=t.split(':').map(Number);return h*60+m}
 
+
+function DateCarousel({ data, onChange }: { data: string; onChange: (d: string) => void }) {
+  const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sab']
+  const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+  const dates: Date[] = []
+  const base = new Date(data + 'T12:00:00')
+  for (let i = -3; i <= 3; i++) {
+    const d = new Date(base); d.setDate(base.getDate() + i); dates.push(d)
+  }
+  function toISO(d: Date) {
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0')
+  }
+  const hoje = toISO(new Date())
+  function shift(n: number) {
+    const d = new Date(base); d.setDate(base.getDate() + n); onChange(toISO(d))
+  }
+  return (
+    <div className="flex items-center gap-1 my-3 justify-center select-none">
+      <button onClick={() => shift(-7)} className="px-2 py-1 text-gray-500 hover:text-blue-600 text-lg font-bold">&#171;</button>
+      <button onClick={() => shift(-1)} className="px-2 py-1 text-gray-500 hover:text-blue-600 text-lg font-bold">&#8249;</button>
+      <div className="flex gap-1">
+        {dates.map((d, i) => {
+          const iso = toISO(d)
+          const sel = iso === data
+          const isHoje = iso === hoje
+          return (
+            <button key={i} onClick={() => onChange(iso)}
+              className={`flex flex-col items-center px-2.5 py-1.5 rounded-xl text-xs transition-all
+                ${sel ? 'bg-blue-600 text-white font-bold shadow-md scale-105'
+                : isHoje ? 'bg-blue-50 text-blue-700 border border-blue-300 font-semibold'
+                : 'text-gray-500 hover:bg-gray-100'}`}>
+              <span className="text-[10px] uppercase">{dias[d.getDay()]}</span>
+              <span className="text-base font-bold leading-tight">{d.getDate()}</span>
+              <span className="text-[9px]">{meses[d.getMonth()]}</span>
+            </button>
+          )
+        })}
+      </div>
+      <button onClick={() => shift(1)} className="px-2 py-1 text-gray-500 hover:text-blue-600 text-lg font-bold">&#8250;</button>
+      <button onClick={() => shift(7)} className="px-2 py-1 text-gray-500 hover:text-blue-600 text-lg font-bold">&#187;</button>
+      <button onClick={() => onChange(hoje)} className="ml-2 px-2 py-1 text-xs text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50">Hoje</button>
+    </div>
+  )
+}
+
 export default function RotasDoDia() {
   const sb = createClientComponentClient()
   const [hospitais, setHospitais] = useState<Hospital[]>([])
@@ -228,7 +273,7 @@ export default function RotasDoDia() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-800">🗺️ Rotas do Dia</h1>
         <div className="flex gap-3 items-center">
-          <input type="date" value={data} onChange={e=>setData(e.target.value)} className="border rounded-lg px-3 py-2 text-sm"/>
+          <DateCarousel data={data} onChange={setData} />setData(e.target.value)} className="border rounded-lg px-3 py-2 text-sm"/>
           {rotas.length>0&&<button onClick={salvar} disabled={salvando} className="bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-green-700 disabled:opacity-50">{salvando?'Salvando...':'💾 Salvar rotas'}</button>}
         </div>
       </div>
