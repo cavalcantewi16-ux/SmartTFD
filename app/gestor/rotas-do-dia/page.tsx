@@ -334,7 +334,7 @@ export default function RotasDoDia() {
           </div>
         </div>
       )})}
-      {pacientesFixos.length > 0 && (
+      {(()=>{const _ds=new Date(data+'T12:00:00');const _di=_ds.getDay();const _dn=['dom','seg','ter','qua','qui','sex','sab'][_di];const _fx=pacientesFixos.filter((p:any)=>(p.dias_semana||[]).includes(_dn));return _fx.length>0&&(
         <div className="fixed right-3 top-20 w-56 max-h-[calc(100vh-5.5rem)] overflow-y-auto z-20 shadow-xl">
           <div className="bg-white border border-amber-200 rounded-2xl overflow-hidden">
             <button onClick={() => setFixosAberto(v => !v)}
@@ -347,7 +347,7 @@ export default function RotasDoDia() {
             </button>
             {fixosAberto && (
               <div className="divide-y divide-amber-50 max-h-96 overflow-y-auto">
-                {pacientesFixos.map((p:any) => {
+                {_fx.map((p:any) => {
                   const jaIncluido = rotas.some((r:any) => r.pacs.some((pp:any) => pp.paciente_id === p.id))
                   const hojeIdx = new Date().getDay()
                   const dias: string[] = p.dias_semana || []
@@ -374,7 +374,7 @@ export default function RotasDoDia() {
             )}
           </div>
         </div>
-      )}
+      )})()}
       <button onClick={addRota} className="w-full py-4 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-blue-400 hover:text-blue-600 font-semibold text-sm">+ Adicionar nova rota</button>
       {locModal&&(
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>{setLocModal(null);setLocPick(null)}}>
