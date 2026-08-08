@@ -25,6 +25,9 @@ export default function PacientePerfilPage() {
   const [paciente, setPaciente] = useState<Paciente | null>(null)
   const [viagens, setViagens] = useState<ViagemHistorico[]>([])
   const [carregando, setCarregando] = useState(true)
+  const [recorrente, setRecorrente] = useState(false)
+  const [diasSemana, setDiasSemana] = useState<string[]>([])
+  const [salvandoRec, setSalvandoRec] = useState(false)
 
   const carregar = useCallback(async () => {
     const [{ data: p }, { data: vs }] = await Promise.all([
@@ -37,6 +40,8 @@ export default function PacientePerfilPage() {
       `).eq('viagem_paradas.paciente_id', id).order('data', { ascending: false }),
     ])
     setPaciente(p)
+    setRecorrente((p as any)?.recorrente ?? false)
+    setDiasSemana((p as any)?.dias_semana ?? [])
     setViagens((vs as any) ?? [])
     setCarregando(false)
   }, [supabase, id])
@@ -48,6 +53,17 @@ export default function PacientePerfilPage() {
     let idade = hoje.getFullYear() - nasc.getFullYear()
     if (hoje.getMonth() - nasc.getMonth() < 0 || (hoje.getMonth() === nasc.getMonth() && hoje.getDate() < nasc.getDate())) idade--
     return idade
+  }
+
+  async function salvarRecorrente() {
+    setSalvandoRec(true)
+    await supabase.from('pacientes').update({ recorrente, dias_semana: diasSemana } as any).eq('id', id)
+    setSalvandoRec(false)
+    alert('Salvo!')
+  }
+
+  function toggleDia(d: string) {
+    setDiasSemana(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])
   }
 
   if (carregando) return <div className="flex-1 flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700" /></div>
@@ -94,6 +110,41 @@ export default function PacientePerfilPage() {
             🗺️ Ver no mapa — {paciente.lat.toFixed(5)}, {paciente.lng.toFixed(5)}
           </a>
         )}
+      </div>
+
+      {/* Recorrencia */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-semibold text-gray-700">★ Paciente Recorrente</h4>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <span className="text-xs text-gray-500">{recorrente ? 'Sim' : 'Não'}</span>
+            <div onClick={() => setRecorrente(v => !v)}
+              className={'relative w-10 h-5 rounded-full transition-colors cursor-pointer ' + (recorrente ? 'bg-blue-600' : 'bg-gray-300')}>
+              <div className={'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ' + (recorrente ? 'translate-x-5' : '')} />
+            </div>
+          </label>
+        </div>
+        {recorrente && (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500">Dias fixos de transporte:</p>
+            <div className="flex gap-2 flex-wrap">
+              {['dom','seg','ter','qua','qui','sex','sab'].map(d => (
+                <button key={d} onClick={() => toggleDia(d)}
+                  className={'px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-colors ' +
+                    (diasSemana.includes(d) ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200')}>
+                  {d}
+                </button>
+              ))}
+            </div>
+            {diasSemana.length > 0 && (
+              <p className="text-xs text-blue-600">Dias selecionados: {diasSemana.join(', ')}</p>
+            )}
+          </div>
+        )}
+        <button onClick={salvarRecorrente} disabled={salvandoRec}
+          className="mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg disabled:opacity-50">
+          {salvandoRec ? 'Salvando...' : 'Salvar Recorrência'}
+        </button>
       </div>
 
       {/* Histórico de viagens */}
