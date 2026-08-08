@@ -253,7 +253,7 @@ export default function RotasDoDia() {
   // Carregar pacientes recorrentes
   useEffect(() => {
     sb.from('pacientes').select('id,nome,bairro,dias_semana').eq('recorrente', true).order('nome').then(({ data }) => {
-      if (data) setPacientesFixos(data as any[])
+      if (data) setPacientesFixos((data as any[]).filter((p:any) => (p.dias_semana||[]).length > 0))
     })
   }, [sb])
   

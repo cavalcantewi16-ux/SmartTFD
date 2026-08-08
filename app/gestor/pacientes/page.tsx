@@ -13,7 +13,7 @@ interface Paciente {
 interface Hospital { id: string; nome: string; cidade?: string }
 
 const FORM_VAZIO = {
-  nome: '', cpf: '', telefone: '',
+  nome: '', cpf: '', telefone: '', recorrente: false, dias_semana: [] as string[],
   endereco: '', bairro: '', cidade: '',
   observacoes: '', hospital_principal_id: '',
 }
@@ -93,6 +93,8 @@ export default function Pacientes() {
       endereco:    p.endereco    || '',
       bairro:      p.bairro      || '',
       cidade:      p.cidade      || '',
+      recorrente:  (p as any).recorrente  || false,
+      dias_semana: (p as any).dias_semana || [],
       observacoes:           p.observacoes           || '',
       hospital_principal_id: (p as any).hospital_principal_id || '',
     })
@@ -123,6 +125,8 @@ export default function Pacientes() {
       cidade:      form.cidade.trim()   || null,
       observacoes:           form.observacoes.trim()           || null,
       hospital_principal_id: form.hospital_principal_id || null,
+      recorrente:  (form as any).recorrente || false,
+      dias_semana: (form as any).dias_semana || [],
     }
     if (lat !== undefined) { payload.lat = lat; payload.lng = lng }
 
@@ -260,6 +264,36 @@ export default function Pacientes() {
               Cancelar
             </button>
           )}
+          {/* Recorrencia */}
+          <div className="border-t pt-4 mt-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">★ Paciente Recorrente</span>
+              <div onClick={() => (setForm as any)(f => ({...f, recorrente: !f.recorrente}))}
+                className={'relative w-10 h-5 rounded-full cursor-pointer transition-colors ' + ((form as any).recorrente ? 'bg-blue-600' : 'bg-gray-300')}>
+                <div className={'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ' + ((form as any).recorrente ? 'translate-x-5' : '')} />
+              </div>
+            </div>
+            {(form as any).recorrente && (
+              <div>
+                <p className="text-xs text-gray-500 mb-2">Dias fixos de transporte:</p>
+                <div className="flex gap-2 flex-wrap">
+                  {['dom','seg','ter','qua','qui','sex','sab'].map(d => {
+                    const dias: string[] = (form as any).dias_semana || []
+                    const ativo = dias.includes(d)
+                    return (
+                      <button key={d} type="button" onClick={() => (setForm as any)(f => {
+                        const cur: string[] = (f as any).dias_semana || []
+                        return {...f, dias_semana: ativo ? cur.filter((x:string) => x!==d) : [...cur, d]}
+                      })}
+                        className={'px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-colors ' + (ativo ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200')}>
+                        {d}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
           <button onClick={salvar} disabled={salvando || geocodando}
             className="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
             {geocodando ? '📍 Geocodificando…' : salvando ? '⏳ Salvando…' : editId ? '💾 Atualizar' : '➕ Cadastrar'}
