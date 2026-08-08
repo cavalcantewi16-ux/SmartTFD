@@ -263,7 +263,7 @@ export default function RotasDoDia() {
     await sb.from('route_plans').delete().eq('data',data)
     for(const rota of rotas) {
       if(!rota.motorista_id||!rota.veiculo_id||!rota.pacs.length) continue
-      const{data:plan,error:e1}=await sb.from('route_plans').insert({data,motorista_id:rota.motorista_id,veiculo_id:rota.veiculo_id,status:'draft'}).select('id').single()
+      const{data:plan,error:e1}=await sb.from('route_plans').insert({data,motorista_id:rota.motorista_id,veiculo_id:rota.veiculo_id,status:'draft',codigo:'TFD-'+data.replace(/-/g,'')+'-'+Math.random().toString(36).toUpperCase().slice(2,6)}).select('id').single()
       if(e1){console.error('route_plans error:',e1);continue}
       if(!plan) continue
       const{data:leg}=await sb.from('route_legs').insert({plan_id:plan.id,hospital_id:rota.pacs[0]?.hospital_id,horario_saida:rota.saida||'06:00',ordem:1,status:'aguardando',est_outbound_min:rota.tempo_min}).select('id').single()

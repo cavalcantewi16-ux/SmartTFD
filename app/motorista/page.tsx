@@ -6,7 +6,7 @@ interface Paciente{id:string;nome:string;endereco?:string;bairro?:string;lat?:nu
 interface Passenger{id:string;paciente:Paciente;ordem:number;status:string;est_pickup_at?:string}
 interface Hospital{id:string;nome:string;cidade?:string;lat?:number;lng?:number}
 interface Leg{id:string;hospital:Hospital;horario_saida:string;ordem:number;status:string;passengers:Passenger[];est_departure_at?:string;est_hospital_at?:string;est_outbound_min?:number}
-interface Plan{id:string;data:string;status:string;veiculo:{id:string;placa:string;modelo?:string};motorista:{id:string;nome:string};legs:Leg[]}
+interface Plan{id:string;data:string;status:string;codigo?:string;veiculo:{id:string;placa:string;modelo?:string};motorista:{id:string;nome:string};legs:Leg[]}
 interface PendingAction{passId:string;status:string;oldStatus:string;nome:string;label:string}
 const TZ='America/Sao_Paulo'
 function fmtHora(iso?:string|null,fb?:string){if(iso)return new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:TZ});if(fb)return fb.substring(0,5);return'--:--'}
@@ -29,7 +29,7 @@ export default function MotoristaPage(){
   const carregar=useCallback(async(uid?:string,dataParam?:string)=>{
     const userId=uid||user?.id;if(!userId){setLoading(false);return}
     const hoje=dataParam||(()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')})()
-    try{const{data}=await sb.from('route_plans').select('id,data,status,veiculo:veiculos(id,placa,modelo),motorista:profiles(id,nome),route_legs(id,horario_saida,ordem,status,est_departure_at,est_hospital_at,est_outbound_min,hospital:hospitais(id,nome,cidade,lat,lng),leg_passengers(id,ordem,status,est_pickup_at,paciente:pacientes(id,nome,endereco,bairro,lat,lng)))').eq('data',hoje).eq('motorista_id',userId).in('status',['draft','active','returning']).order('created_at',{ascending:false})
+    try{const{data}=await sb.from('route_plans').select('id,data,status,codigo,veiculo:veiculos(id,placa,modelo),motorista:profiles(id,nome),route_legs(id,horario_saida,ordem,status,est_departure_at,est_hospital_at,est_outbound_min,hospital:hospitais(id,nome,cidade,lat,lng),leg_passengers(id,ordem,status,est_pickup_at,paciente:pacientes(id,nome,endereco,bairro,lat,lng)))').eq('data',hoje).eq('motorista_id',userId).in('status',['draft','active','returning','completed']).order('created_at',{ascending:false})
     if(data&&data.length){const ps:Plan[]=data.map((r:any)=>({...r,legs:((r.route_legs||[])as any[]).sort((a:any,b:any)=>a.ordem-b.ordem).map((l:any)=>({...l,passengers:(l.leg_passengers||[]).sort((a:any,b:any)=>a.ordem-b.ordem)}))}));setPlans(ps);setSel(prev=>prev?ps.find(p=>p.id===prev.id)||null:null)}else{setPlans([])}}catch(e){console.error(e)}
     setLoading(false)
   },[sb,user?.id])
