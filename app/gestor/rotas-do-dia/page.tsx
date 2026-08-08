@@ -281,7 +281,7 @@ export default function RotasDoDia() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-800">🗺️ Rotas do Dia</h1>
         <div className="flex gap-3 items-center">
-          <DateCarousel data={data} onChange={setData} />setData(e.target.value)} className="border rounded-lg px-3 py-2 text-sm"/>
+          <DateCarousel data={data} onChange={setData} />
           {rotas.length>0&&<button onClick={salvar} disabled={salvando} className="bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-green-700 disabled:opacity-50">{salvando?'Salvando...':'💾 Salvar rotas'}</button>}
         </div>
       </div>
