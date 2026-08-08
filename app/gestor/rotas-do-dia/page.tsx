@@ -80,7 +80,7 @@ export default function RotasDoDia() {
   const markerRef = useRef<any>(null)
   const [dragging, setDragging] = useState<{ru:string;pu:string}|null>(null)
   const [dragOver, setDragOver] = useState<{ru:string;pu:string}|null>(null)
-  const [novoForm, setNovoForm] = useState<{nome:string;end:string;bairro:string;tel:string}|null>(null)
+  const [novoForm, setNovoForm] = useState<{nome:string;end:string;bairro:string;tel:string;recorrente:boolean;dias_semana:string[]}|null>(null)
 
   useEffect(() => {
     sb.from('hospitais').select('id,nome,cidade,lat,lng').order('nome').then(({data:d})=>setHospitais(d||[]))
@@ -224,7 +224,7 @@ export default function RotasDoDia() {
 
   async function salvarNovoPac() {
     if(!modal||!novoForm||!novoForm.nome.trim()) return
-    const{data:novo}=await sb.from('pacientes').insert({nome:novoForm.nome.trim(),endereco:novoForm.end.trim()||null,bairro:novoForm.bairro.trim()||null,telefone:novoForm.tel.trim()||null}).select('id,nome,endereco,bairro,lat,lng').single()
+    const{data:novo}=await sb.from('pacientes').insert({nome:novoForm.nome.trim(),endereco:novoForm.end.trim()||null,bairro:novoForm.bairro.trim()||null,telefone:novoForm.tel.trim()||null,recorrente:novoForm.recorrente,dias_semana:novoForm.dias_semana}).select('id,nome,endereco,bairro,lat,lng').single()
     if(!novo) return
     setPacDB(p=>[...p,novo])
     selPac(novo)
@@ -404,8 +404,8 @@ export default function RotasDoDia() {
                 </button>
               ))}
               {modal.q.length>=2&&!resultados.length&&<p className="text-sm text-gray-400 px-3 py-2">Nenhum paciente encontrado.</p>}
-              {!novoForm&&<button onClick={()=>setNovoForm({nome:modal.q,end:'',bairro:'',tel:''})} className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 font-semibold border-t mt-1">+ Adicionar novo paciente</button>}
-              {novoForm&&(<div className="border-t pt-3 mt-1 space-y-2 px-1"><p className="text-xs font-bold text-gray-600 mb-1">Novo paciente</p><input value={novoForm.nome} onChange={e=>setNovoForm(f=>f?{...f,nome:e.target.value}:null)} placeholder="Nome completo *" className="w-full border rounded px-2 py-1.5 text-sm"/><input value={novoForm.end} onChange={e=>setNovoForm(f=>f?{...f,end:e.target.value}:null)} placeholder="Endereco" className="w-full border rounded px-2 py-1.5 text-sm"/><input value={novoForm.bairro} onChange={e=>setNovoForm(f=>f?{...f,bairro:e.target.value}:null)} placeholder="Bairro" className="w-full border rounded px-2 py-1.5 text-sm"/><input value={novoForm.tel} onChange={e=>setNovoForm(f=>f?{...f,tel:e.target.value}:null)} placeholder="Telefone" className="w-full border rounded px-2 py-1.5 text-sm"/><div className="flex gap-2"><button onClick={salvarNovoPac} className="flex-1 bg-blue-600 text-white py-1.5 rounded text-sm hover:bg-blue-700">Salvar</button><button onClick={()=>setNovoForm(null)} className="px-3 py-1.5 rounded text-sm border hover:bg-gray-50">Cancelar</button></div></div>)}
+              {!novoForm&&<button onClick={()=>setNovoForm({nome:modal.q,end:'',bairro:'',tel:'',recorrente:false,dias_semana:[]})} className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 font-semibold border-t mt-1">+ Adicionar novo paciente</button>}
+              {novoForm&&(<div className="border-t pt-3 mt-1 space-y-2 px-1"><p className="text-xs font-bold text-gray-600 mb-1">Novo paciente</p><input value={novoForm.nome} onChange={e=>setNovoForm(f=>f?{...f,nome:e.target.value}:null)} placeholder="Nome completo *" className="w-full border rounded px-2 py-1.5 text-sm"/><input value={novoForm.end} onChange={e=>setNovoForm(f=>f?{...f,end:e.target.value}:null)} placeholder="Endereco" className="w-full border rounded px-2 py-1.5 text-sm"/><input value={novoForm.bairro} onChange={e=>setNovoForm(f=>f?{...f,bairro:e.target.value}:null)} placeholder="Bairro" className="w-full border rounded px-2 py-1.5 text-sm"/><input value={novoForm.tel} onChange={e=>setNovoForm(f=>f?{...f,tel:e.target.value}:null)} placeholder="Telefone" className="w-full border rounded px-2 py-1.5 text-sm"/><div className="border-t pt-2 mt-1"><div className="flex items-center justify-between mb-1"><span className="text-[10px] font-bold text-gray-500 uppercase">★ Recorrente</span><div onClick={()=>setNovoForm(f=>f?{...f,recorrente:!f.recorrente}:null)} className={'relative w-8 h-4 rounded-full cursor-pointer '+(novoForm.recorrente?'bg-blue-600':'bg-gray-300')}><div className={'absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform '+(novoForm.recorrente?'translate-x-4':'')} /></div></div>{novoForm.recorrente&&(<div className="flex gap-1 flex-wrap mb-2">{['dom','seg','ter','qua','qui','sex','sab'].map(d=>{const a=novoForm.dias_semana.includes(d);return(<button key={d} type="button" onClick={()=>setNovoForm(f=>f?{...f,dias_semana:a?f.dias_semana.filter(x=>x!==d):[...f.dias_semana,d]}:null)} className={'px-1.5 py-0.5 rounded text-[10px] font-bold uppercase '+(a?'bg-blue-600 text-white':'bg-gray-100 text-gray-400')}>{d}</button>)})}</div>)}</div><div className="flex gap-2"><button onClick={salvarNovoPac} className="flex-1 bg-blue-600 text-white py-1.5 rounded text-sm hover:bg-blue-700">Salvar</button><button onClick={()=>setNovoForm(null)} className="px-3 py-1.5 rounded text-sm border hover:bg-gray-50">Cancelar</button></div></div>)}
             </div>
           </div>
         </div>
