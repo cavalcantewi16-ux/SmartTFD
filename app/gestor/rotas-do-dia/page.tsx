@@ -326,10 +326,8 @@ export default function RotasDoDia() {
                       {hospitais.map(h=><option key={h.id} value={h.id}>{h.nome}</option>)}
                     </select>
                     <div className="flex items-center gap-1 mt-1">
-                      <button onClick={()=>setLocModal({ru:rota._uid,pu:pac._uid,q:pac.destino_end||'',res:[],mode:'destino'})} className="text-purple-500 hover:text-purple-700 text-xs px-2 py-1 border border-purple-200 rounded flex items-center gap-1" title="Definir destino no mapa">&#128205; Destino</button>
-                      {pac.destino_lat&&<span className="text-xs text-purple-600 truncate">{pac.destino_lat.toFixed(4)}, {pac.destino_lng?.toFixed(4)}</span>}
-                      {pac.destino_end&&!pac.destino_lat&&<span className="text-xs text-purple-600 truncate">{pac.destino_end}</span>}
-                      {pac.destino_lat&&<button onClick={()=>setPac(rota._uid,pac._uid,{destino_lat:null,destino_lng:null,destino_end:undefined})} className="text-red-400 hover:text-red-600 text-xs">x</button>}
+                      <input readOnly value={pac.destino_end||''} placeholder="Destino" onClick={()=>setLocModal({ru:rota._uid,pu:pac._uid,q:pac.destino_end||'',res:[],mode:'destino'})} className="border rounded-lg px-2 py-1 text-xs flex-1 text-gray-600 bg-white cursor-pointer"/>
+                      <button onClick={()=>setLocModal({ru:rota._uid,pu:pac._uid,q:pac.destino_end||'',res:[],mode:'destino'})} className="text-red-500 hover:text-red-700 text-base px-1" title="Buscar destino no mapa">&#128205;</button>
                     </div>
                     <p className="text-[10px] text-gray-400 mt-2 mb-0.5">Horário de consulta</p><input type="time" value={pac.horario} onChange={e=>setPac(rota._uid,pac._uid,{horario:e.target.value})} className="w-full border rounded px-1 py-1"/>{pac.prioridade&&<div className={"mt-1 inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full "+(pac.prioridade==="alta"?"bg-red-100 text-red-700":pac.prioridade==="baixa"?"bg-green-100 text-green-700":"bg-yellow-100 text-yellow-700")}>Prioridade: {pac.prioridade.charAt(0).toUpperCase()+pac.prioridade.slice(1)}</div>}
                     <button onClick={()=>removePac(rota._uid,pac._uid)} className="text-red-400 hover:text-red-600 w-full text-right">✕ remover</button>
