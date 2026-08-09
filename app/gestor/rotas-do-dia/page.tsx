@@ -8,7 +8,7 @@ interface Paciente { id:string; nome:string; endereco?:string; bairro?:string; l
 interface Hospital { id:string; nome:string; cidade?:string; lat?:number|null; lng?:number|null }
 interface Veiculo { id:string; placa:string; modelo:string; capacidade:number }
 interface Motorista { id:string; nome:string }
-interface PacRota { _uid:string; paciente_id:string; nome:string; acomp:number; localizacao:string; lat?:number|null; lng?:number|null; lat_gestor?:number|null; lng_gestor?:number|null; hospital_id:string; horario:string }
+interface PacRota { _uid:string; paciente_id:string; nome:string; acomp:number; localizacao:string; lat?:number|null; lng?:number|null; lat_gestor?:number|null; lng_gestor?:number|null; hospital_id:string; horario:string; destino_lat?:number|null; destino_lng?:number|null; destino_end?:string }
 interface Rota { _uid:string; motorista_id:string; motorista_nome:string; veiculo_id:string; veiculo_modelo:string; capacidade:number; pacs:PacRota[]; tempo_min:number|null; saida:string|null }
 
 function uid() { return crypto.randomUUID() }
@@ -72,7 +72,7 @@ export default function RotasDoDia() {
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
   const [modal, setModal] = useState<{rotaUid:string;pacUid:string;q:string}|null>(null)
-  const [locModal, setLocModal] = useState<{ru:string;pu:string;q:string;res:any[]}|null>(null)
+  const [locModal, setLocModal] = useState<{ru:string;pu:string;q:string;res:any[];mode:'pickup'|'destino'}|null>(null)
   const [buscando, setBuscando] = useState(false)
   const [gmLoaded, setGmLoaded] = useState(false)
   const [locPick, setLocPick] = useState<{lat:number;lng:number}|null>(null)
@@ -212,6 +212,11 @@ export default function RotasDoDia() {
 
   async function confirmarLoc(){
     if(!locModal||!locPick) return
+    if(locModal.mode==='destino'){
+      const qd=locModal.q||locPick.lat.toFixed(5)+', '+locPick.lng.toFixed(5)
+      setPac(locModal.ru,locModal.pu,{destino_lat:locPick.lat,destino_lng:locPick.lng,destino_end:qd})
+      setLocModal(null);setLocPick(null);return
+    }
     const q=locModal.q||locPick.lat.toFixed(5)+', '+locPick.lng.toFixed(5)
     setPac(locModal.ru,locModal.pu,{localizacao:q,lat_gestor:locPick.lat,lng_gestor:locPick.lng})
     const rota=rotas.find(r=>r._uid===locModal.ru)
@@ -268,7 +273,7 @@ export default function RotasDoDia() {
       if(!plan) continue
       const{data:leg}=await sb.from('route_legs').insert({plan_id:plan.id,hospital_id:rota.pacs[0]?.hospital_id,horario_saida:rota.saida||'06:00',ordem:1,status:'aguardando',est_outbound_min:rota.tempo_min}).select('id').single()
       if(!leg) continue
-      for(let i=0;i<rota.pacs.length;i++){const p=rota.pacs[i];if(p.paciente_id)await sb.from('leg_passengers').insert({leg_id:leg.id,paciente_id:p.paciente_id,ordem:i+1,status:'aguardando'})}
+      for(let i=0;i<rota.pacs.length;i++){const p=rota.pacs[i];if(p.paciente_id)await sb.from('leg_passengers').insert({leg_id:leg.id,paciente_id:p.paciente_id,ordem:i+1,status:'aguardando',...(p.destino_lat?{destino_lat:p.destino_lat,destino_lng:p.destino_lng,destino_end:p.destino_end}:{})})}
       ok++
     }
     setSalvando(false); setMsg('Salvo: '+String(ok)+' rota(s)!'); setTimeout(()=>setMsg(''),4000)
@@ -315,11 +320,17 @@ export default function RotasDoDia() {
                   <div key={pac._uid} draggable onDragStart={()=>setDragging({ru:rota._uid,pu:pac._uid})} onDragOver={e=>{e.preventDefault();setDragOver({ru:rota._uid,pu:pac._uid})}} onDrop={e=>{e.preventDefault();onDropOnPac(rota._uid,pac._uid)}} onDragEnd={()=>{setDragging(null);setDragOver(null)}} className={`bg-white rounded-xl border p-3 min-w-[170px] w-44 flex-shrink-0 space-y-2 text-xs cursor-grab transition-opacity ${dragOver?.pu===pac._uid&&dragging?.pu!==pac._uid?"border-blue-400 border-2":"border-gray-200"} ${dragging?.pu===pac._uid?"opacity-40":""}`}>
                     <button onClick={()=>setModal({rotaUid:rota._uid,pacUid:pac._uid,q:pac.nome})} className="w-full text-left font-semibold text-gray-800 hover:text-blue-600 truncate">{pac.nome||'👤 Paciente'}</button>
                     <div className="flex items-center gap-1"><span className="text-red-500">Acomp:</span><input type="number" min="0" max="9" value={pac.acomp} onChange={e=>setPac(rota._uid,pac._uid,{acomp:parseInt(e.target.value)||0})} className="w-10 border rounded px-1 text-center"/></div>
-                    <div className="flex gap-1"><input value={pac.localizacao} placeholder="📍 Localizacao" onChange={e=>setPac(rota._uid,pac._uid,{localizacao:e.target.value})} className="flex-1 min-w-0 border rounded px-1.5 py-1"/><button onClick={()=>setLocModal({ru:rota._uid,pu:pac._uid,q:pac.localizacao,res:[]})} className="text-blue-500 hover:text-blue-700 text-base px-1" title="Buscar no mapa">&#128205;</button></div>
+                    <div className="flex gap-1"><input value={pac.localizacao} placeholder="📍 Localizacao" onChange={e=>setPac(rota._uid,pac._uid,{localizacao:e.target.value})} className="flex-1 min-w-0 border rounded px-1.5 py-1"/><button onClick={()=>setLocModal({ru:rota._uid,pu:pac._uid,q:pac.localizacao,res:[],mode:'pickup'})} className="text-blue-500 hover:text-blue-700 text-base px-1" title="Buscar no mapa">&#128205;</button></div>
                     {pac.lat_gestor&&pac.lng_gestor&&(<div className="bg-blue-50 border border-blue-200 rounded px-1.5 py-1 text-xs text-blue-700 flex items-center justify-between gap-1"><span>Loc. salva pelo gestor</span><span className="font-mono opacity-70">{pac.lat_gestor?.toFixed(4)}, {pac.lng_gestor?.toFixed(4)}</span></div>)}{pac.lat&&pac.lng&&(<div className="bg-green-50 border border-green-200 rounded px-1.5 py-1 text-xs text-green-700 flex items-center justify-between gap-1"><span>Loc. salva pelo motorista</span><span className="font-mono opacity-70">{pac.lat?.toFixed(4)}, {pac.lng?.toFixed(4)}</span></div>)}<select value={pac.hospital_id} onChange={e=>setPac(rota._uid,pac._uid,{hospital_id:e.target.value})} className="w-full border rounded px-1 py-1">
                       <option value="">-- Hospital --</option>
                       {hospitais.map(h=><option key={h.id} value={h.id}>{h.nome}</option>)}
                     </select>
+                    <div className="flex items-center gap-1 mt-1">
+                      <button onClick={()=>setLocModal({ru:rota._uid,pu:pac._uid,q:pac.destino_end||'',res:[],mode:'destino'})} className="text-purple-500 hover:text-purple-700 text-xs px-2 py-1 border border-purple-200 rounded flex items-center gap-1" title="Definir destino no mapa">&#128205; Destino</button>
+                      {pac.destino_lat&&<span className="text-xs text-purple-600 truncate">{pac.destino_lat.toFixed(4)}, {pac.destino_lng?.toFixed(4)}</span>}
+                      {pac.destino_end&&!pac.destino_lat&&<span className="text-xs text-purple-600 truncate">{pac.destino_end}</span>}
+                      {pac.destino_lat&&<button onClick={()=>setPac(rota._uid,pac._uid,{destino_lat:null,destino_lng:null,destino_end:undefined})} className="text-red-400 hover:text-red-600 text-xs">x</button>}
+                    </div>
                     <input type="time" value={pac.horario} onChange={e=>setPac(rota._uid,pac._uid,{horario:e.target.value})} className="w-full border rounded px-1 py-1"/>
                     <button onClick={()=>removePac(rota._uid,pac._uid)} className="text-red-400 hover:text-red-600 w-full text-right">✕ remover</button>
                   </div>
