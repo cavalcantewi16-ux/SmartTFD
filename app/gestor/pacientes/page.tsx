@@ -266,6 +266,12 @@ export default function Pacientes() {
           )}
           {/* Recorrencia */}
           <div className="border-t pt-4 mt-2">
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Prioridade</label>
+            <div className="flex gap-2 mb-4">
+              {(['alta','media','baixa'] as const).map(p=><button key={p} type="button" onClick={()=>(setForm as any)(f=>({...f,prioridade:p}))} className={'px-3 py-1 rounded-full text-xs font-bold border transition '+(form.prioridade===p?(p==='alta'?'bg-red-100 border-red-400 text-red-700':p==='media'?'bg-yellow-100 border-yellow-400 text-yellow-700':'bg-green-100 border-green-400 text-green-700'):'border-gray-300 text-gray-500')}>{p.charAt(0).toUpperCase()+p.slice(1)}</button>)}
+            </div>
+          </div>
+          <div className="border-t pt-4 mt-2">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">★ Paciente Recorrente</span>
               <div onClick={() => (setForm as any)(f => ({...f, recorrente: !f.recorrente}))}

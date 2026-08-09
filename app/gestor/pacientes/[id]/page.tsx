@@ -28,6 +28,7 @@ export default function PacientePerfilPage() {
   const [recorrente, setRecorrente] = useState(false)
   const [diasSemana, setDiasSemana] = useState<string[]>([])
   const [salvandoRec, setSalvandoRec] = useState(false)
+  const [prioridade, setPrioridade] = useState<string>('media')
 
   const carregar = useCallback(async () => {
     const [{ data: p }, { data: vs }] = await Promise.all([
@@ -42,6 +43,7 @@ export default function PacientePerfilPage() {
     setPaciente(p)
     setRecorrente((p as any)?.recorrente ?? false)
     setDiasSemana((p as any)?.dias_semana ?? [])
+    setPrioridade((p as any)?.prioridade ?? 'media')
     setViagens((vs as any) ?? [])
     setCarregando(false)
   }, [supabase, id])
@@ -57,7 +59,7 @@ export default function PacientePerfilPage() {
 
   async function salvarRecorrente() {
     setSalvandoRec(true)
-    await supabase.from('pacientes').update({ recorrente, dias_semana: diasSemana } as any).eq('id', id)
+    await supabase.from('pacientes').update({ recorrente, dias_semana: diasSemana, prioridade } as any).eq('id', id)
     setSalvandoRec(false)
     alert('Salvo!')
   }
@@ -114,6 +116,12 @@ export default function PacientePerfilPage() {
 
       {/* Recorrencia */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+        <div className="mb-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Prioridade</p>
+          <div className="flex gap-2">
+            {(['alta','media','baixa'] as const).map(p=><button key={p} type="button" onClick={()=>setPrioridade(p)} className={'px-3 py-1 rounded-full text-xs font-bold border transition '+(prioridade===p?(p==='alta'?'bg-red-100 border-red-400 text-red-700':p==='media'?'bg-yellow-100 border-yellow-400 text-yellow-700':'bg-green-100 border-green-400 text-green-700'):'border-gray-300 text-gray-500')}>{p.charAt(0).toUpperCase()+p.slice(1)}</button>)}
+          </div>
+        </div>
         <div className="flex items-center justify-between mb-3">
           <h4 className="text-sm font-semibold text-gray-700">★ Paciente Recorrente</h4>
           <label className="flex items-center gap-2 cursor-pointer">
