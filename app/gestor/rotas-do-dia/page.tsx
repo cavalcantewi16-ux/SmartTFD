@@ -86,7 +86,7 @@ export default function RotasDoDia() {
     sb.from('hospitais').select('id,nome,cidade,lat,lng').order('nome').then(({data:d})=>setHospitais(d||[]))
     sb.from('veiculos').select('id,placa,modelo,capacidade').order('modelo').then(({data:d})=>setVeiculos(d||[]))
     sb.from('profiles').select('id,nome').eq('role','motorista').order('nome').then(({data:d})=>setMotoristas(d||[]))
-    sb.from('pacientes').select('id,nome,endereco,bairro,lat,lng,lat_gestor,lng_gestor').order('nome').then(({data:d})=>setPacDB(d||[]))
+    sb.from('pacientes').select('id,nome,endereco,bairro,lat,lng,lat_gestor,lng_gestor,prioridade').order('nome').then(({data:d})=>setPacDB(d||[]))
   }, [sb])
 
   useEffect(()=>{ if(!modal) setNovoForm(null) },[modal])
