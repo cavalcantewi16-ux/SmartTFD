@@ -58,34 +58,6 @@ function DateCarousel({ data, onChange }: { data: string; onChange: (d: string) 
       <button onClick={() => shift(7)} className="px-2 py-1 text-gray-500 hover:text-blue-600 text-lg font-bold">&#187;</button>
       <button onClick={() => onChange(hoje)} className="ml-2 px-2 py-1 text-xs text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50">Hoje</button>
     </div>
-      {despachoAberto&&(
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/30" onClick={()=>setDespachoAberto(false)}/>
-          <div className="relative bg-white w-full max-w-md h-full shadow-2xl flex flex-col overflow-hidden">
-            <div className="bg-purple-700 text-white px-4 py-3 flex items-center justify-between">
-              <div><p className="font-bold text-lg">🤖 Despacho Inteligente</p><p className="text-xs text-purple-200">Disponibilidade de motoristas — {data}</p></div>
-              <button onClick={()=>setDespachoAberto(false)} className="text-white hover:text-purple-200 text-xl font-bold">✕</button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {analisando&&<div className="text-center text-purple-600 py-8">Analisando rotas...</div>}
-              {!analisando&&analise.length===0&&<div className="text-center text-gray-400 py-8">Nenhum dado encontrado</div>}
-              {analise.map((a,i)=>(
-                <div key={i} className={"rounded-xl border p-3 "+(a.disponivel?'border-green-300 bg-green-50':a.minutosAte<30?'border-yellow-300 bg-yellow-50':'border-red-200 bg-red-50')}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div><p className="font-bold text-sm text-gray-800">{a.motorista}</p><p className="text-xs text-gray-500">{a.veiculo} · {a.placa} · {a.capacidade}p</p></div>
-                    <div className="text-right"><span className={"text-xs font-bold px-2 py-0.5 rounded-full "+(a.disponivel?'bg-green-600 text-white':a.minutosAte<30?'bg-yellow-500 text-white':'bg-red-500 text-white')}>{a.disponivel?'Disponível':a.minutosAte+'min'}</span><p className="text-xs text-gray-500 mt-1">Score: {a.score}</p></div>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="h-1.5 rounded-full bg-purple-500" style={{width:a.score+'%'}}/></div>
-                  <p className="text-xs text-gray-500 mt-1">{a.statusDesc}</p>
-                  {i===0&&<p className="text-xs font-bold text-purple-700 mt-1">⭐ Melhor opção</p>}
-                </div>
-              ))}
-            </div>
-            <div className="border-t p-3"><button onClick={analisarDisponibilidade} className="w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-purple-700">🔄 Atualizar análise</button></div>
-          </div>
-        </div>
-      )}
-    </div>
   )
 }
 
@@ -475,6 +447,60 @@ export default function RotasDoDia() {
               {!novoForm&&<button onClick={()=>setNovoForm({nome:modal.q,end:'',bairro:'',tel:'',recorrente:false,dias_semana:[],prioridade:'media'})} className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 font-semibold border-t mt-1">+ Adicionar novo paciente</button>}
               {novoForm&&(<div className="border-t pt-3 mt-1 space-y-2 px-1"><p className="text-xs font-bold text-gray-600 mb-1">Novo paciente</p><input value={novoForm.nome} onChange={e=>setNovoForm(f=>f?{...f,nome:e.target.value}:null)} placeholder="Nome completo *" className="w-full border rounded px-2 py-1.5 text-sm"/><input value={novoForm.end} onChange={e=>setNovoForm(f=>f?{...f,end:e.target.value}:null)} placeholder="Endereco" className="w-full border rounded px-2 py-1.5 text-sm"/><input value={novoForm.bairro} onChange={e=>setNovoForm(f=>f?{...f,bairro:e.target.value}:null)} placeholder="Bairro" className="w-full border rounded px-2 py-1.5 text-sm"/><input value={novoForm.tel} onChange={e=>setNovoForm(f=>f?{...f,tel:e.target.value}:null)} placeholder="Telefone" className="w-full border rounded px-2 py-1.5 text-sm"/><div className="border-t pt-2 mt-1"><div className="mb-2"><p className="text-[10px] font-bold text-gray-500 uppercase mb-1">Prioridade</p><div className="flex gap-1">{(["alta","media","baixa"]).map(pv=><button key={pv} type="button" onClick={()=>setNovoForm(f=>f?{...f,prioridade:pv}:null)} className={"px-2 py-0.5 rounded-full text-[10px] font-bold border transition "+(novoForm.prioridade===pv?(pv==="alta"?"bg-red-100 border-red-400 text-red-700":pv==="media"?"bg-yellow-100 border-yellow-400 text-yellow-700":"bg-green-100 border-green-400 text-green-700"):"border-gray-300 text-gray-400")}>{pv.charAt(0).toUpperCase()+pv.slice(1)}</button>)}</div></div><div className="flex items-center justify-between mb-1"><span className="text-[10px] font-bold text-gray-500 uppercase">★ Recorrente</span><div onClick={()=>setNovoForm(f=>f?{...f,recorrente:!f.recorrente}:null)} className={'relative w-8 h-4 rounded-full cursor-pointer '+(novoForm.recorrente?'bg-blue-600':'bg-gray-300')}><div className={'absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform '+(novoForm.recorrente?'translate-x-4':'')} /></div></div>{novoForm.recorrente&&(<div className="flex gap-1 flex-wrap mb-2">{['dom','seg','ter','qua','qui','sex','sab'].map(d=>{const a=novoForm.dias_semana.includes(d);return(<button key={d} type="button" onClick={()=>setNovoForm(f=>f?{...f,dias_semana:a?f.dias_semana.filter(x=>x!==d):[...f.dias_semana,d]}:null)} className={'px-1.5 py-0.5 rounded text-[10px] font-bold uppercase '+(a?'bg-blue-600 text-white':'bg-gray-100 text-gray-400')}>{d}</button>)})}</div>)}</div><div className="flex gap-2"><button onClick={salvarNovoPac} className="flex-1 bg-blue-600 text-white py-1.5 rounded text-sm hover:bg-blue-700">Salvar</button><button onClick={()=>setNovoForm(null)} className="px-3 py-1.5 rounded text-sm border hover:bg-gray-50">Cancelar</button></div></div>)}
             </div>
+          </div>
+        </div>
+      )}
+      {despachoAberto&&(
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={()=>setDespachoAberto(false)}/>
+          <div className="relative bg-white w-full max-w-md h-full shadow-2xl flex flex-col overflow-hidden">
+            <div className="bg-purple-700 text-white px-4 py-3 flex items-center justify-between">
+              <div><p className="font-bold text-lg">🤖 Despacho Inteligente</p><p className="text-xs text-purple-200">Disponibilidade de motoristas — {data}</p></div>
+              <button onClick={()=>setDespachoAberto(false)} className="text-white hover:text-purple-200 text-xl font-bold">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {analisando&&<div className="text-center text-purple-600 py-8">Analisando rotas...</div>}
+              {!analisando&&analise.length===0&&<div className="text-center text-gray-400 py-8">Nenhum dado encontrado</div>}
+              {analise.map((a,i)=>(
+                <div key={i} className={"rounded-xl border p-3 "+(a.disponivel?'border-green-300 bg-green-50':a.minutosAte<30?'border-yellow-300 bg-yellow-50':'border-red-200 bg-red-50')}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div><p className="font-bold text-sm text-gray-800">{a.motorista}</p><p className="text-xs text-gray-500">{a.veiculo} · {a.placa} · {a.capacidade}p</p></div>
+                    <div className="text-right"><span className={"text-xs font-bold px-2 py-0.5 rounded-full "+(a.disponivel?'bg-green-600 text-white':a.minutosAte<30?'bg-yellow-500 text-white':'bg-red-500 text-white')}>{a.disponivel?'Disponível':a.minutosAte+'min'}</span><p className="text-xs text-gray-500 mt-1">Score: {a.score}</p></div>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="h-1.5 rounded-full bg-purple-500" style={{width:a.score+'%'}}/></div>
+                  <p className="text-xs text-gray-500 mt-1">{a.statusDesc}</p>
+                  {i===0&&<p className="text-xs font-bold text-purple-700 mt-1">⭐ Melhor opção</p>}
+                </div>
+              ))}
+            </div>
+            <div className="border-t p-3"><button onClick={analisarDisponibilidade} className="w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-purple-700">🔄 Atualizar análise</button></div>
+          </div>
+        </div>
+      )}
+      {despachoAberto&&(
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={()=>setDespachoAberto(false)}/>
+          <div className="relative bg-white w-full max-w-md h-full shadow-2xl flex flex-col overflow-hidden">
+            <div className="bg-purple-700 text-white px-4 py-3 flex items-center justify-between">
+              <div><p className="font-bold text-lg">🤖 Despacho Inteligente</p><p className="text-xs text-purple-200">Disponibilidade de motoristas — {data}</p></div>
+              <button onClick={()=>setDespachoAberto(false)} className="text-white hover:text-purple-200 text-xl font-bold">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {analisando&&<div className="text-center text-purple-600 py-8">Analisando rotas...</div>}
+              {!analisando&&analise.length===0&&<div className="text-center text-gray-400 py-8">Nenhum dado encontrado</div>}
+              {analise.map((a,i)=>(
+                <div key={i} className={"rounded-xl border p-3 "+(a.disponivel?'border-green-300 bg-green-50':a.minutosAte<30?'border-yellow-300 bg-yellow-50':'border-red-200 bg-red-50')}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div><p className="font-bold text-sm text-gray-800">{a.motorista}</p><p className="text-xs text-gray-500">{a.veiculo} · {a.placa} · {a.capacidade}p</p></div>
+                    <div className="text-right"><span className={"text-xs font-bold px-2 py-0.5 rounded-full "+(a.disponivel?'bg-green-600 text-white':a.minutosAte<30?'bg-yellow-500 text-white':'bg-red-500 text-white')}>{a.disponivel?'Disponível':a.minutosAte+'min'}</span><p className="text-xs text-gray-500 mt-1">Score: {a.score}</p></div>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="h-1.5 rounded-full bg-purple-500" style={{width:a.score+'%'}}/></div>
+                  <p className="text-xs text-gray-500 mt-1">{a.statusDesc}</p>
+                  {i===0&&<p className="text-xs font-bold text-purple-700 mt-1">⭐ Melhor opção</p>}
+                </div>
+              ))}
+            </div>
+            <div className="border-t p-3"><button onClick={analisarDisponibilidade} className="w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-purple-700">🔄 Atualizar análise</button></div>
           </div>
         </div>
       )}
