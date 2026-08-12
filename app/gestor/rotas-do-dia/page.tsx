@@ -58,6 +58,34 @@ function DateCarousel({ data, onChange }: { data: string; onChange: (d: string) 
       <button onClick={() => shift(7)} className="px-2 py-1 text-gray-500 hover:text-blue-600 text-lg font-bold">&#187;</button>
       <button onClick={() => onChange(hoje)} className="ml-2 px-2 py-1 text-xs text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50">Hoje</button>
     </div>
+      {despachoAberto&&(
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={()=>setDespachoAberto(false)}/>
+          <div className="relative bg-white w-full max-w-md h-full shadow-2xl flex flex-col overflow-hidden">
+            <div className="bg-purple-700 text-white px-4 py-3 flex items-center justify-between">
+              <div><p className="font-bold text-lg">🤖 Despacho Inteligente</p><p className="text-xs text-purple-200">Disponibilidade de motoristas — {data}</p></div>
+              <button onClick={()=>setDespachoAberto(false)} className="text-white hover:text-purple-200 text-xl font-bold">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {analisando&&<div className="text-center text-purple-600 py-8">Analisando rotas...</div>}
+              {!analisando&&analise.length===0&&<div className="text-center text-gray-400 py-8">Nenhum dado encontrado</div>}
+              {analise.map((a,i)=>(
+                <div key={i} className={"rounded-xl border p-3 "+(a.disponivel?'border-green-300 bg-green-50':a.minutosAte<30?'border-yellow-300 bg-yellow-50':'border-red-200 bg-red-50')}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div><p className="font-bold text-sm text-gray-800">{a.motorista}</p><p className="text-xs text-gray-500">{a.veiculo} · {a.placa} · {a.capacidade}p</p></div>
+                    <div className="text-right"><span className={"text-xs font-bold px-2 py-0.5 rounded-full "+(a.disponivel?'bg-green-600 text-white':a.minutosAte<30?'bg-yellow-500 text-white':'bg-red-500 text-white')}>{a.disponivel?'Disponível':a.minutosAte+'min'}</span><p className="text-xs text-gray-500 mt-1">Score: {a.score}</p></div>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="h-1.5 rounded-full bg-purple-500" style={{width:a.score+'%'}}/></div>
+                  <p className="text-xs text-gray-500 mt-1">{a.statusDesc}</p>
+                  {i===0&&<p className="text-xs font-bold text-purple-700 mt-1">⭐ Melhor opção</p>}
+                </div>
+              ))}
+            </div>
+            <div className="border-t p-3"><button onClick={analisarDisponibilidade} className="w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-purple-700">🔄 Atualizar análise</button></div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -71,6 +99,9 @@ export default function RotasDoDia() {
   const [rotas, setRotas] = useState<Rota[]>([])
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
+  const [despachoAberto, setDespachoAberto] = useState(false)
+  const [analise, setAnalise] = useState<any[]>([])
+  const [analisando, setAnalisando] = useState(false)
   const [modal, setModal] = useState<{rotaUid:string;pacUid:string;q:string}|null>(null)
   const [locModal, setLocModal] = useState<{ru:string;pu:string;q:string;res:any[];mode:'pickup'|'destino'}|null>(null)
   const [buscando, setBuscando] = useState(false)
@@ -227,6 +258,37 @@ export default function RotasDoDia() {
     setLocModal(null);setLocPick(null)
   }
 
+  async function analisarDisponibilidade() {
+    setAnalisando(true); setDespachoAberto(true)
+    const { data: plans } = await sb.from('route_plans').select(`id,status,motorista_id,veiculo_id,profiles:motorista_id(nome),veiculos:veiculo_id(modelo,placa,capacidade),route_legs(id,horario_saida,est_outbound_min,leg_passengers(status))`).eq('data', data)
+    const { data: allProf } = await sb.from('profiles').select('id,nome').eq('papel','motorista')
+    const { data: allVeic } = await sb.from('veiculos').select('id,modelo,placa,capacidade')
+    const now = new Date(); const results: any[] = []
+    for (const plan of plans||[]) {
+      const leg = (plan.route_legs as any[])?.[0]
+      const pax = leg?.leg_passengers||[]; const total=pax.length
+      const feitos=pax.filter((p:any)=>['liberado','outro_motorista','desistiu','ausente'].includes(p.status)).length
+      const rest=total-feitos
+      let minutosAte=0,statusDesc='',disponivel=false
+      if(plan.status==='completed'){disponivel=true;statusDesc='Disponivel';minutosAte=0}
+      else if(plan.status==='returning'){const mins=(leg?.est_outbound_min||60);minutosAte=Math.max(0,Math.round(mins*0.5-(now.getHours()*60+now.getMinutes()-(()=>{const[h,m]=(leg?.horario_saida||'06:00').split(':').map(Number);return h*60+m})())));statusDesc=`Retornando (~${minutosAte}min)`}
+      else if(plan.status==='active'){const avg=(leg?.est_outbound_min||60)/Math.max(total,1);minutosAte=Math.round(rest*avg);statusDesc=`Em rota (${rest} restantes, ~${minutosAte}min)`}
+      else{minutosAte=999;statusDesc='Programado'}
+      const score=Math.max(0,100-minutosAte*2)
+      results.push({motorista:(plan.profiles as any)?.nome||'?',veiculo:(plan.veiculos as any)?.modelo||'',placa:(plan.veiculos as any)?.placa||'',capacidade:(plan.veiculos as any)?.capacidade||0,status:plan.status,statusDesc,minutosAte,score,disponivel})
+    }
+    const usedM=new Set((plans||[]).map((p:any)=>p.motorista_id))
+    const usedV=new Set((plans||[]).map((p:any)=>p.veiculo_id))
+    for(const pr of allProf||[]){
+      if(usedM.has(pr.id))continue
+      const fv=(allVeic||[]).find((v:any)=>!usedV.has(v.id))
+      results.push({motorista:pr.nome,veiculo:fv?.modelo||'—',placa:fv?.placa||'',capacidade:fv?.capacidade||0,status:'livre',statusDesc:'Sem rota — disponivel agora',minutosAte:0,score:100,disponivel:true})
+      if(fv)usedV.add(fv.id)
+    }
+    results.sort((a,b)=>b.score-a.score)
+    setAnalise(results); setAnalisando(false)
+  }
+
   async function salvarNovoPac() {
     if(!modal||!novoForm||!novoForm.nome.trim()) return
     const{data:novo}=await sb.from('pacientes').insert({nome:novoForm.nome.trim(),endereco:novoForm.end.trim()||null,bairro:novoForm.bairro.trim()||null,telefone:novoForm.tel.trim()||null,recorrente:novoForm.recorrente,dias_semana:novoForm.dias_semana,prioridade:novoForm.prioridade}).select('id,nome,endereco,bairro,lat,lng').single()
@@ -287,7 +349,7 @@ export default function RotasDoDia() {
         <h1 className="text-2xl font-bold text-gray-800">🗺️ Rotas do Dia</h1>
         <div className="flex gap-3 items-center">
           <DateCarousel data={data} onChange={setData} />
-          {rotas.length>0&&<button onClick={salvar} disabled={salvando} className="bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-green-700 disabled:opacity-50">{salvando?'Salvando...':'💾 Salvar rotas'}</button>}
+          {rotas.length>0&&<button onClick={salvar} disabled={salvando} className="bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-green-700 disabled:opacity-50">{salvando?'Salvando...':'💾 Salvar rotas'}</button>}<button onClick={analisarDisponibilidade} className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-purple-700">🤖 Despacho</button>
         </div>
       </div>
       {msg&&<div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-800">{msg}</div>}
